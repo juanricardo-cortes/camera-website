@@ -3,9 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>In-App Camera Zoom</title>
+    <title>In-App Camera Zoom with Automatic Hand & Lighting Detection</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- TensorFlow.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <!-- MediaPipe Hands CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js"></script>
+    <!-- HandPose model from TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/handpose@0.0.7/dist/handpose.min.js"></script>
+
     <style>
         /* Custom styles for better visual appeal */
         body {
@@ -25,12 +32,51 @@
             max-width: 90vw; /* Responsive width */
             width: 500px; /* Max width for desktop */
         }
-        video {
+        .camera-area {
+            position: relative; /* Needed for absolute positioning of overlay */
             width: 100%;
-            height: auto;
-            border-radius: 1.5rem 1.5rem 0 0; /* Rounded top corners */
-            display: block;
+            padding-top: 75%; /* 4:3 aspect ratio (height / width * 100%) */
+            overflow: hidden;
+            border-radius: 1.5rem 1.5rem 0 0;
             background-color: #000; /* Black background for video area */
+        }
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Ensures video fills the area without distortion */
+            display: block;
+            transform: scaleX(-1); /* Mirror the video horizontally for a "selfie" view */
+        }
+        /* Hidden canvas for processing video frames */
+        #hiddenCanvas {
+            display: none;
+        }
+        .hand-outline-overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%); /* Center the overlay */
+            width: 60%; /* Size of the outline relative to camera area */
+            height: 60%;
+            border: 4px solid; /* Border color will be set by JS */
+            border-radius: 1rem; /* Rounded corners for the outline */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            color: white;
+            font-weight: bold;
+            pointer-events: none; /* Allow clicks to pass through to video/buttons below */
+            transition: border-color 0.3s ease-in-out; /* Smooth color transition */
+        }
+        .red-outline {
+            border-color: #ef4444; /* Red color for no hand */
+        }
+        .green-outline {
+            border-color: #22c55e; /* Green color for hand detected */
         }
         .controls {
             padding: 1.5rem;
@@ -42,6 +88,7 @@
             display: flex;
             justify-content: center;
             gap: 0.75rem;
+            flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
         }
         button {
             padding: 0.75rem 1.5rem;
@@ -102,21 +149,44 @@
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
         #message-box {
-            background-color: #fef2f2;
-            color: #ef4444;
             padding: 0.75rem;
             border-radius: 0.5rem;
             text-align: center;
             font-size: 0.875rem;
             display: none; /* Hidden by default */
+            margin-bottom: 0.5rem;
+        }
+        .message-info {
+            background-color: #e0e7ff; /* light blue */
+            color: #4f46e5; /* blue */
+        }
+        .message-warning {
+            background-color: #fffbeb; /* light yellow */
+            color: #f59e0b; /* yellow */
+        }
+        .message-error {
+            background-color: #fef2f2; /* light red */
+            color: #ef4444; /* red */
+        }
+        .message-success {
+            background-color: #ecfdf5; /* light green */
+            color: #10b981; /* green */
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <video id="cameraFeed" autoplay playsinline></video>
+        <div class="camera-area">
+            <video id="cameraFeed" autoplay playsinline></video>
+            <!-- Hidden canvas for processing video frames -->
+            <canvas id="hiddenCanvas"></canvas>
+            <!-- Hand Outline Overlay -->
+            <div id="handOutlineOverlay" class="hand-outline-overlay red-outline">
+                <!-- You could add an SVG icon here for a more detailed hand outline -->
+            </div>
+        </div>
         <div class="controls">
-            <div id="message-box"></div>
+            <div id="message-box" class="message-info"></div>
             <div class="button-group">
                 <button id="zoomOutBtn" class="btn-secondary">Zoom Out</button>
                 <button id="zoomInBtn" class="btn-primary">Zoom In</button>
@@ -133,29 +203,31 @@
         const zoomOutBtn = document.getElementById('zoomOutBtn');
         const zoomSlider = document.getElementById('zoomSlider');
         const messageBox = document.getElementById('message-box');
+        const handOutlineOverlay = document.getElementById('handOutlineOverlay');
+        const hiddenCanvas = document.getElementById('hiddenCanvas');
+        const ctx = hiddenCanvas.getContext('2d');
 
         let mediaStream = null;
         let videoTrack = null;
         let zoomCapabilities = null;
         let currentZoom = 0; // Initialize current zoom level
+        let isHandDetected = false; // State for actual hand detection
+        let lightingCondition = 'unknown'; // State for lighting condition ('good', 'low', 'high')
+        let handposeModel = null; // Variable to hold the loaded handpose model
+
+        // Lighting thresholds (adjust as needed for your environment)
+        const LOW_BRIGHTNESS_THRESHOLD = 60; // Average pixel value below this is considered low light
+        const HIGH_BRIGHTNESS_THRESHOLD = 180; // Average pixel value above this is considered high light (overexposed)
 
         /**
          * Displays a message in the message box.
          * @param {string} message - The message to display.
-         * @param {string} type - The type of message (e.g., 'error', 'info').
+         * @param {string} type - The type of message ('info', 'warning', 'error', 'success').
          */
-        function showMessage(message, type = 'info') {
+        function updateMessageBox(message, type = 'info') {
             messageBox.textContent = message;
             messageBox.style.display = 'block';
-            if (type === 'error') {
-                messageBox.className = 'bg-red-100 text-red-700 p-3 rounded-lg text-sm text-center';
-            } else {
-                messageBox.className = 'bg-blue-100 text-blue-700 p-3 rounded-lg text-sm text-center';
-            }
-            // Hide message after 5 seconds
-            setTimeout(() => {
-                messageBox.style.display = 'none';
-            }, 5000);
+            messageBox.className = `message-box message-${type}`; // Apply dynamic class
         }
 
         /**
@@ -180,21 +252,31 @@
                     currentZoom = zoomCapabilities.min; // Start at min zoom
                     zoomSlider.value = currentZoom;
                     updateZoomDisplay(); // Update initial display
-                    showMessage('Camera access granted. Zoom controls available.', 'info');
+                    updateMessageBox('Camera access granted. Zoom controls available.', 'info');
                 } else {
-                    showMessage('Zoom is not supported by your camera or browser.', 'error');
+                    updateMessageBox('Zoom is not supported by your camera or browser.', 'warning');
                     zoomInBtn.disabled = true;
                     zoomOutBtn.disabled = true;
                     zoomSlider.disabled = true;
                 }
+                updateHandOutline(); // Set initial outline color to red
+
+                // Wait for the video to load metadata to get its dimensions
+                cameraFeed.onloadedmetadata = () => {
+                    hiddenCanvas.width = cameraFeed.videoWidth;
+                    hiddenCanvas.height = cameraFeed.videoHeight;
+                    // Start hand detection loop after camera is ready
+                    startDetectionLoop();
+                };
+
             } catch (error) {
                 console.error('Error accessing camera:', error);
                 if (error.name === 'NotAllowedError') {
-                    showMessage('Camera access denied. Please allow camera access in your browser settings.', 'error');
+                    updateMessageBox('Camera access denied. Please allow camera access in your browser settings.', 'error');
                 } else if (error.name === 'NotFoundError') {
-                    showMessage('No camera found on your device.', 'error');
+                    updateMessageBox('No camera found on your device.', 'error');
                 } else {
-                    showMessage(`Error: ${error.message}. Could not access camera.`, 'error');
+                    updateMessageBox(`Error: ${error.message}. Could not access camera.`, 'error');
                 }
                 zoomInBtn.disabled = true;
                 zoomOutBtn.disabled = true;
@@ -208,7 +290,7 @@
          */
         function applyZoom(newZoom) {
             if (!videoTrack || !zoomCapabilities) {
-                showMessage('Camera not ready or zoom not supported.', 'error');
+                updateMessageBox('Camera not ready or zoom not supported.', 'warning');
                 return;
             }
 
@@ -224,7 +306,7 @@
                 updateZoomDisplay();
             }).catch(error => {
                 console.error('Error applying zoom:', error);
-                showMessage(`Failed to apply zoom: ${error.message}`, 'error');
+                updateMessageBox(`Failed to apply zoom: ${error.message}`, 'error');
             });
         }
 
@@ -232,9 +314,125 @@
          * Updates the zoom slider and potentially a text display (if added).
          */
         function updateZoomDisplay() {
-            // Optional: You could add a text element to show the current zoom value
-            // For now, the slider itself reflects the value.
-            // console.log(`Current Zoom: ${currentZoom}`);
+            // This function is currently a placeholder.
+            // You could add a text element here to show the current zoom value if desired.
+        }
+
+        /**
+         * Updates the hand outline color based on the isHandDetected state.
+         */
+        function updateHandOutline() {
+            if (isHandDetected) {
+                handOutlineOverlay.classList.remove('red-outline');
+                handOutlineOverlay.classList.add('green-outline');
+            } else {
+                handOutlineOverlay.classList.remove('green-outline');
+                handOutlineOverlay.classList.add('red-outline');
+            }
+        }
+
+        /**
+         * Analyzes the lighting condition from the provided ImageData.
+         * @param {ImageData} imageData - The image data from the canvas.
+         * @returns {string} 'good', 'low', or 'high'.
+         */
+        function analyzeLighting(imageData) {
+            const data = imageData.data;
+            let totalBrightness = 0;
+            const pixelCount = data.length / 4; // Each pixel has R, G, B, A
+
+            if (pixelCount === 0) return 'unknown';
+
+            // Calculate average brightness (luminance)
+            for (let i = 0; i < data.length; i += 4) {
+                // Approximate luminance: 0.299*R + 0.587*G + 0.114*B
+                totalBrightness += (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+            }
+            const averageBrightness = totalBrightness / pixelCount;
+
+            if (averageBrightness < LOW_BRIGHTNESS_THRESHOLD) {
+                return 'low';
+            } else if (averageBrightness > HIGH_BRIGHTNESS_THRESHOLD) {
+                return 'high';
+            } else {
+                return 'good';
+            }
+        }
+
+        /**
+         * Updates the combined status message in the message box.
+         */
+        function updateCombinedStatusMessage() {
+            let handStatus = isHandDetected ? 'Hand detected!' : 'No hand visible.';
+            let lightingStatusText = '';
+            let messageType = 'info';
+
+            switch (lightingCondition) {
+                case 'low':
+                    lightingStatusText = 'Lighting is too low. Move to a brighter area.';
+                    messageType = 'warning';
+                    break;
+                case 'high':
+                    lightingStatusText = 'Lighting is too bright. Avoid glare.';
+                    messageType = 'warning';
+                    break;
+                case 'good':
+                    lightingStatusText = 'Lighting looks good for details.';
+                    messageType = 'success';
+                    break;
+                default:
+                    lightingStatusText = 'Analyzing lighting...';
+                    messageType = 'info';
+            }
+
+            const fullMessage = `${handStatus} ${lightingStatusText}`;
+            updateMessageBox(fullMessage, messageType);
+        }
+
+
+        /**
+         * Loads the Handpose model.
+         */
+        async function loadHandposeModel() {
+            updateMessageBox('Loading hand detection model...', 'info');
+            try {
+                handposeModel = await handpose.load();
+                updateMessageBox('Hand detection model loaded successfully!', 'info');
+            } catch (error) {
+                console.error('Error loading handpose model:', error);
+                updateMessageBox('Failed to load hand detection model. Hand detection will not work.', 'error');
+            }
+        }
+
+        /**
+         * Starts the continuous hand and lighting detection loop.
+         */
+        async function startDetectionLoop() {
+            if (!handposeModel || !cameraFeed.videoWidth || !cameraFeed.videoHeight) {
+                // If model isn't loaded or video dimensions aren't ready, try again after a short delay
+                requestAnimationFrame(startDetectionLoop);
+                return;
+            }
+
+            // Draw the video frame onto the hidden canvas
+            ctx.drawImage(cameraFeed, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+
+            // Get image data for lighting analysis
+            const imageData = ctx.getImageData(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+            lightingCondition = analyzeLighting(imageData);
+
+            // Perform hand detection
+            const predictions = await handposeModel.estimateHands(hiddenCanvas);
+
+            // Determine if a hand is detected
+            isHandDetected = predictions.length > 0;
+
+            // Update UI based on detection and lighting
+            updateHandOutline();
+            updateCombinedStatusMessage();
+
+            // Request the next animation frame to continue the loop
+            requestAnimationFrame(startDetectionLoop);
         }
 
         // Event Listeners
@@ -261,8 +459,11 @@
             }
         });
 
-        // Initialize camera when the window loads
-        window.onload = initCamera;
+        // Initialize camera and load handpose model when the window loads
+        window.onload = async () => {
+            await loadHandposeModel(); // Load the ML model first
+            await initCamera(); // Then initialize the camera
+        };
 
         // Cleanup: Stop camera stream when the page is closed or navigated away
         window.addEventListener('beforeunload', () => {
