@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>In-App Camera Zoom</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom styles for better visual appeal */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 1.5rem; /* More rounded corners */
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+            overflow: hidden;
+            max-width: 90vw; /* Responsive width */
+            width: 500px; /* Max width for desktop */
+        }
+        video {
+            width: 100%;
+            height: auto;
+            border-radius: 1.5rem 1.5rem 0 0; /* Rounded top corners */
+            display: block;
+            background-color: #000; /* Black background for video area */
+        }
+        .controls {
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .button-group {
+            display: flex;
+            justify-content: center;
+            gap: 0.75rem;
+        }
+        button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem; /* Rounded buttons */
+            font-weight: 600;
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            border: none; /* Remove default border */
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+        button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+        }
+        .btn-primary {
+            background-color: #4f46e5;
+            color: white;
+        }
+        .btn-primary:hover {
+            background-color: #4338ca;
+        }
+        .btn-secondary {
+            background-color: #e5e7eb;
+            color: #374151;
+        }
+        .btn-secondary:hover {
+            background-color: #d1d5db;
+        }
+        input[type="range"] {
+            width: 100%;
+            -webkit-appearance: none; /* Remove default styling */
+            height: 8px;
+            background: #e0e7ff; /* Light blue track */
+            border-radius: 5px;
+            outline: none;
+            transition: opacity .2s;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #4f46e5; /* Primary color thumb */
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #4f46e5;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        #message-box {
+            background-color: #fef2f2;
+            color: #ef4444;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            text-align: center;
+            font-size: 0.875rem;
+            display: none; /* Hidden by default */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <video id="cameraFeed" autoplay playsinline></video>
+        <div class="controls">
+            <div id="message-box"></div>
+            <div class="button-group">
+                <button id="zoomOutBtn" class="btn-secondary">Zoom Out</button>
+                <button id="zoomInBtn" class="btn-primary">Zoom In</button>
+            </div>
+            <label for="zoomSlider" class="text-center text-gray-700 font-medium">Zoom Level:</label>
+            <input type="range" id="zoomSlider" min="0" max="100" value="0" class="w-full">
+        </div>
+    </div>
+
+    <script>
+        // Get references to DOM elements
+        const cameraFeed = document.getElementById('cameraFeed');
+        const zoomInBtn = document.getElementById('zoomInBtn');
+        const zoomOutBtn = document.getElementById('zoomOutBtn');
+        const zoomSlider = document.getElementById('zoomSlider');
+        const messageBox = document.getElementById('message-box');
+
+        let mediaStream = null;
+        let videoTrack = null;
+        let zoomCapabilities = null;
+        let currentZoom = 0; // Initialize current zoom level
+
+        /**
+         * Displays a message in the message box.
+         * @param {string} message - The message to display.
+         * @param {string} type - The type of message (e.g., 'error', 'info').
+         */
+        function showMessage(message, type = 'info') {
+            messageBox.textContent = message;
+            messageBox.style.display = 'block';
+            if (type === 'error') {
+                messageBox.className = 'bg-red-100 text-red-700 p-3 rounded-lg text-sm text-center';
+            } else {
+                messageBox.className = 'bg-blue-100 text-blue-700 p-3 rounded-lg text-sm text-center';
+            }
+            // Hide message after 5 seconds
+            setTimeout(() => {
+                messageBox.style.display = 'none';
+            }, 5000);
+        }
+
+        /**
+         * Initializes the camera feed and sets up zoom controls.
+         */
+        async function initCamera() {
+            try {
+                // Request access to the user's camera
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                cameraFeed.srcObject = mediaStream;
+
+                // Get the video track from the stream
+                videoTrack = mediaStream.getVideoTracks()[0];
+
+                // Check if zoom capabilities are supported by the video track
+                const capabilities = videoTrack.getCapabilities();
+                if (capabilities.zoom) {
+                    zoomCapabilities = capabilities.zoom;
+                    zoomSlider.min = zoomCapabilities.min;
+                    zoomSlider.max = zoomCapabilities.max;
+                    zoomSlider.step = zoomCapabilities.step;
+                    currentZoom = zoomCapabilities.min; // Start at min zoom
+                    zoomSlider.value = currentZoom;
+                    updateZoomDisplay(); // Update initial display
+                    showMessage('Camera access granted. Zoom controls available.', 'info');
+                } else {
+                    showMessage('Zoom is not supported by your camera or browser.', 'error');
+                    zoomInBtn.disabled = true;
+                    zoomOutBtn.disabled = true;
+                    zoomSlider.disabled = true;
+                }
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                if (error.name === 'NotAllowedError') {
+                    showMessage('Camera access denied. Please allow camera access in your browser settings.', 'error');
+                } else if (error.name === 'NotFoundError') {
+                    showMessage('No camera found on your device.', 'error');
+                } else {
+                    showMessage(`Error: ${error.message}. Could not access camera.`, 'error');
+                }
+                zoomInBtn.disabled = true;
+                zoomOutBtn.disabled = true;
+                zoomSlider.disabled = true;
+            }
+        }
+
+        /**
+         * Applies the new zoom level to the video track.
+         * @param {number} newZoom - The desired zoom level.
+         */
+        function applyZoom(newZoom) {
+            if (!videoTrack || !zoomCapabilities) {
+                showMessage('Camera not ready or zoom not supported.', 'error');
+                return;
+            }
+
+            // Clamp the new zoom value within the capabilities' min and max
+            newZoom = Math.max(zoomCapabilities.min, Math.min(newZoom, zoomCapabilities.max));
+
+            // Apply the new constraints
+            videoTrack.applyConstraints({
+                advanced: [{ zoom: newZoom }]
+            }).then(() => {
+                currentZoom = newZoom;
+                zoomSlider.value = currentZoom;
+                updateZoomDisplay();
+            }).catch(error => {
+                console.error('Error applying zoom:', error);
+                showMessage(`Failed to apply zoom: ${error.message}`, 'error');
+            });
+        }
+
+        /**
+         * Updates the zoom slider and potentially a text display (if added).
+         */
+        function updateZoomDisplay() {
+            // Optional: You could add a text element to show the current zoom value
+            // For now, the slider itself reflects the value.
+            // console.log(`Current Zoom: ${currentZoom}`);
+        }
+
+        // Event Listeners
+        zoomInBtn.addEventListener('click', () => {
+            if (zoomCapabilities) {
+                // Increase zoom by a step, or a fixed amount if step is not granular enough
+                let newZoom = currentZoom + (zoomCapabilities.step || (zoomCapabilities.max - zoomCapabilities.min) / 10);
+                applyZoom(newZoom);
+            }
+        });
+
+        zoomOutBtn.addEventListener('click', () => {
+            if (zoomCapabilities) {
+                // Decrease zoom by a step
+                let newZoom = currentZoom - (zoomCapabilities.step || (zoomCapabilities.max - zoomCapabilities.min) / 10);
+                applyZoom(newZoom);
+            }
+        });
+
+        zoomSlider.addEventListener('input', (event) => {
+            if (zoomCapabilities) {
+                const newZoom = parseFloat(event.target.value);
+                applyZoom(newZoom);
+            }
+        });
+
+        // Initialize camera when the window loads
+        window.onload = initCamera;
+
+        // Cleanup: Stop camera stream when the page is closed or navigated away
+        window.addEventListener('beforeunload', () => {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+            }
+        });
+    </script>
+</body>
+</html>
