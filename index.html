@@ -155,10 +155,20 @@
         .camera-area {
             position: relative;
             width: 100%;
-            padding-top: 75%; /* 4:3 aspect ratio */
+            /* Default to landscape 4:3 aspect ratio for desktop */
+            padding-top: 75%; /* (height / width) * 100% = (3/4) * 100% */
             overflow: hidden;
             background-color: #000;
         }
+
+        /* Adjust for mobile portrait (e.g., up to 768px width) */
+        @media (max-width: 768px) {
+            .camera-area {
+                /* For portrait, use a 3:4 aspect ratio (height > width) */
+                padding-top: 133.33%; /* (4/3) * 100% */
+            }
+        }
+
         video {
             position: absolute;
             top: 0;
@@ -167,7 +177,7 @@
             height: 100%;
             object-fit: cover;
             display: block;
-            transform: scaleX(-1); /* Mirror for selfie view */
+            /* transform: scaleX(-1); This will be set dynamically by JS */
         }
         #hiddenCanvas {
             display: none;
@@ -331,6 +341,7 @@
                     <button id="zoomOutBtn" class="btn-secondary">Zoom Out</button>
                     <button id="zoomInBtn" class="btn-primary">Zoom In</button>
                     <button id="captureBtn" class="btn-capture" disabled>Capture Image</button>
+                    <button id="toggleCameraBtn" class="btn-secondary">Toggle Camera</button>
                 </div>
                 <label for="zoomSlider" class="text-center text-gray-700 font-medium">Zoom Level:</label>
                 <input type="range" id="zoomSlider" min="0" max="100" value="0" class="w-full" disabled>
@@ -344,7 +355,7 @@
         const closeModalBtn = document.getElementById('closeModalBtn');
         const modalTitle = document.getElementById('modalTitle');
         const captureTriggerButtons = document.querySelectorAll('.capture-trigger-btn');
-        const removeImageButtons = document.querySelectorAll('.remove-image-btn'); // New: Remove buttons
+        const removeImageButtons = document.querySelectorAll('.remove-image-btn');
 
         const cameraFeed = document.getElementById('cameraFeed');
         const zoomInBtn = document.getElementById('zoomInBtn');
@@ -355,16 +366,17 @@
         const hiddenCanvas = document.getElementById('hiddenCanvas');
         const ctx = hiddenCanvas.getContext('2d');
         const captureBtn = document.getElementById('captureBtn');
+        const toggleCameraBtn = document.getElementById('toggleCameraBtn'); // New: Toggle Camera Button
 
         const leftPalmInput = document.getElementById('leftPalmInput');
         const leftPalmPreview = document.getElementById('leftPalmPreview');
         const leftPalmText = document.getElementById('leftPalmText');
-        const leftPalmRemoveBtn = document.querySelector('#leftPalmBox .remove-image-btn'); // Specific remove button for left
+        const leftPalmRemoveBtn = document.querySelector('#leftPalmBox .remove-image-btn');
 
         const rightPalmInput = document.getElementById('rightPalmInput');
         const rightPalmPreview = document.getElementById('rightPalmPreview');
         const rightPalmText = document.getElementById('rightPalmText');
-        const rightPalmRemoveBtn = document.querySelector('#rightPalmBox .remove-image-btn'); // Specific remove button for right
+        const rightPalmRemoveBtn = document.querySelector('#rightPalmBox .remove-image-btn');
 
         // --- State Variables ---
         let mediaStream = null;
@@ -374,8 +386,9 @@
         let isHandDetected = false;
         let lightingCondition = 'unknown';
         let handposeModel = null;
-        let currentPalmTarget = null; // 'left' or 'right'
-        let animationFrameId = null; // To manage requestAnimationFrame loop
+        let currentPalmTarget = null;
+        let animationFrameId = null;
+        let currentFacingMode = 'user'; // 'user' for front camera, 'environment' for back camera
 
         // Lighting thresholds (adjust as needed for your environment)
         const LOW_BRIGHTNESS_THRESHOLD = 60;
@@ -399,14 +412,22 @@
          */
         async function initCamera() {
             try {
-                // Request access to the user's camera
-                mediaStream = await navigator.mediaDevices.getUserMedia({ video: true });
+                // Stop any existing camera stream first
+                stopCamera();
+
+                // Set video constraints based on current facing mode
+                const videoConstraints = {
+                    facingMode: currentFacingMode
+                };
+
+                mediaStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
                 cameraFeed.srcObject = mediaStream;
 
-                // Get the video track from the stream
+                // Apply mirroring for front camera, remove for back camera
+                cameraFeed.style.transform = (currentFacingMode === 'user') ? 'scaleX(-1)' : 'none';
+
                 videoTrack = mediaStream.getVideoTracks()[0];
 
-                // Check if zoom capabilities are supported by the video track
                 const capabilities = videoTrack.getCapabilities();
                 if (capabilities.zoom) {
                     zoomCapabilities = capabilities.zoom;
@@ -415,9 +436,9 @@
                     zoomSlider.step = zoomCapabilities.step;
                     currentZoom = zoomCapabilities.min;
                     zoomSlider.value = currentZoom;
-                    zoomInBtn.disabled = false; // Enable zoom buttons
+                    zoomInBtn.disabled = false;
                     zoomOutBtn.disabled = false;
-                    zoomSlider.disabled = false; // Enable zoom slider
+                    zoomSlider.disabled = false;
                     updateZoomDisplay();
                     updateMessageBox('Camera ready. Zoom controls available.', 'info');
                     console.log('Zoom capabilities:', zoomCapabilities);
@@ -428,12 +449,10 @@
                     zoomSlider.disabled = true;
                     console.log('Zoom not supported by device/browser.');
                 }
-                updateHandOutline(); // Set initial outline color to red
-                checkCaptureButtonState(); // Initial check for capture button
+                updateHandOutline();
+                checkCaptureButtonState();
 
-                // Wait for the video to load metadata to get its dimensions
                 cameraFeed.onloadedmetadata = () => {
-                    // Start hand detection loop after camera is ready
                     startDetectionLoop();
                 };
 
@@ -443,7 +462,13 @@
                     updateMessageBox('Camera access denied. Please allow camera access in your browser settings.', 'error');
                 } else if (error.name === 'NotFoundError') {
                     updateMessageBox('No camera found on your device.', 'error');
-                } else {
+                } else if (error.name === 'OverconstrainedError') {
+                    updateMessageBox('Requested camera not available. Trying default camera.', 'warning');
+                    // Fallback to default if specific facingMode fails
+                    currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user'; // Try the other one
+                    initCamera(); // Recursively call with fallback
+                }
+                else {
                     updateMessageBox(`Error: ${error.message}. Could not access camera.`, 'error');
                 }
                 zoomInBtn.disabled = true;
@@ -721,8 +746,11 @@
 
             // --- Draw the cropped and oriented image to the final hiddenCanvas, applying mirroring ---
             ctx.save();
-            ctx.translate(hiddenCanvas.width, 0); // Move origin to top-right for mirroring
-            ctx.scale(-1, 1); // Apply mirroring for selfie view
+            // Apply mirroring ONLY if facingMode is 'user' (front camera)
+            if (currentFacingMode === 'user') {
+                ctx.translate(hiddenCanvas.width, 0); // Move origin to top-right for mirroring
+                ctx.scale(-1, 1); // Apply mirroring for selfie view
+            }
 
             // Draw the calculated cropped portion from sourceForCropping onto the hiddenCanvas,
             // filling the entire hiddenCanvas area.
@@ -797,7 +825,8 @@
             currentPalmTarget = palm;
             modalTitle.textContent = `Capture ${palm === 'left' ? 'Left' : 'Right'} Palm Photo`;
             cameraModal.classList.add('show');
-            await initCamera(); // Initialize camera when modal opens
+            // Re-initialize camera with current facing mode when modal opens
+            await initCamera();
         }
 
         /**
@@ -852,6 +881,13 @@
         });
 
         captureBtn.addEventListener('click', captureImage);
+
+        // New: Toggle Camera button functionality
+        toggleCameraBtn.addEventListener('click', () => {
+            currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
+            initCamera(); // Re-initialize camera with the new facing mode
+        });
+
 
         // --- Initial Load ---
         window.onload = async () => {
