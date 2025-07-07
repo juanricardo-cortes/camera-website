@@ -640,34 +640,45 @@
                 return;
             }
 
+            // Get intrinsic video dimensions
+            const videoWidth = cameraFeed.videoWidth;
+            const videoHeight = cameraFeed.videoHeight;
+
+            // Get the displayed dimensions of the video element (which is the target size for the canvas)
+            const displayWidth = cameraFeed.offsetWidth;
+            const displayHeight = cameraFeed.offsetHeight;
+
             // Set hidden canvas dimensions to match the *displayed* video element's dimensions
-            // This ensures the captured image has the same aspect ratio as what the user sees
-            hiddenCanvas.width = cameraFeed.offsetWidth;
-            hiddenCanvas.height = cameraFeed.offsetHeight;
+            hiddenCanvas.width = displayWidth;
+            hiddenCanvas.height = displayHeight;
 
             // Calculate source rectangle to mimic object-fit: cover
-            const videoRatio = cameraFeed.videoWidth / cameraFeed.videoHeight;
-            const canvasRatio = hiddenCanvas.width / hiddenCanvas.height;
+            const videoAspectRatio = videoWidth / videoHeight;
+            const displayAspectRatio = displayWidth / displayHeight;
 
-            let sx = 0, sy = 0;
-            let sWidth = cameraFeed.videoWidth;
-            let sHeight = cameraFeed.videoHeight;
+            let sx = 0, sy = 0; // Source X, Y
+            let sWidth = videoWidth; // Source Width
+            let sHeight = videoHeight; // Source Height
 
-            if (videoRatio > canvasRatio) { // Video is wider than the canvas (container)
-                sHeight = cameraFeed.videoHeight;
-                sWidth = sHeight * canvasRatio;
-                sx = (cameraFeed.videoWidth - sWidth) / 2;
-            } else { // Video is taller than or same aspect ratio as the canvas (container)
-                sWidth = cameraFeed.videoWidth;
-                sHeight = sWidth / canvasRatio;
-                sy = (cameraFeed.videoHeight - sHeight) / 2;
+            if (videoAspectRatio > displayAspectRatio) {
+                // Video is wider than display area, so it's cropped horizontally
+                sHeight = videoHeight; // Use full video height
+                sWidth = sHeight * displayAspectRatio; // Calculate source width based on display aspect ratio
+                sx = (videoWidth - sWidth) / 2; // Calculate X offset to center
+            } else {
+                // Video is taller than or same aspect ratio as display area, so it's cropped vertically
+                sWidth = videoWidth; // Use full video width
+                sHeight = sWidth / displayAspectRatio; // Calculate source height based on display aspect ratio
+                sy = (videoHeight - sHeight) / 2; // Calculate Y offset to center
             }
 
             // Draw the current video frame onto the hidden canvas
             // Apply the same mirroring as the video element for consistency
             ctx.save();
-            ctx.scale(-1, 1); // Apply mirroring
-            // Draw the calculated source rectangle onto the destination canvas
+            ctx.scale(-1, 1); // Apply mirroring for selfie view
+            // Draw the calculated source rectangle (sx, sy, sWidth, sHeight)
+            // onto the destination canvas (dx, dy, dWidth, dHeight)
+            // dx will be -hiddenCanvas.width because of the scale(-1, 1) transform
             ctx.drawImage(cameraFeed, sx, sy, sWidth, sHeight, -hiddenCanvas.width, 0, hiddenCanvas.width, hiddenCanvas.height);
             ctx.restore();
 
