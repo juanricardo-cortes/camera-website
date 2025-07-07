@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>In-App Camera Zoom with Automatic Hand & Lighting Detection</title>
+    <title>Palm Photo Capture with Custom Camera</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- TensorFlow.js CDN -->
@@ -23,22 +23,141 @@
             align-items: center;
             min-height: 100vh;
             margin: 0;
+            padding: 20px; /* Add some padding for smaller screens */
+            box-sizing: border-box; /* Include padding in element's total width and height */
         }
-        .container {
-            background-color: #ffffff;
-            border-radius: 1.5rem; /* More rounded corners */
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-            overflow: hidden;
-            max-width: 90vw; /* Responsive width */
-            width: 500px; /* Max width for desktop */
+
+        /* User's original palm upload container styles */
+        .palm-upload-container {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-top: 20px;
+            flex-wrap: wrap; /* Allow wrapping on small screens */
         }
-        .camera-area {
-            position: relative; /* Needed for absolute positioning of overlay */
+        .upload-box {
+            border: 2px dashed #d7bfb9;
+            border-radius: 8px;
+            width: 180px;
+            height: 180px; /* Increased height to accommodate image */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            background-color: #fffaf8;
+            font-family: sans-serif;
+            font-size: 14px;
+            color: #7a3e2f;
+            text-align: center;
+            position: relative; /* For positioning captured image */
+            overflow: hidden; /* Hide overflow for rounded corners */
+            padding: 10px; /* Add padding inside the box */
+            box-sizing: border-box; /* Include padding in element's total width and height */
+        }
+        .upload-box span {
+            margin-top: 10px;
+            display: block; /* Ensure span takes full width */
+            padding: 0 5px; /* Add padding to text */
+            flex-grow: 1; /* Allow text to take available space */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .upload-box img {
+            max-width: 100%; /* Ensure image fits */
+            max-height: 100%; /* Ensure image fits */
+            object-fit: contain; /* Contain the image within the box */
+            border-radius: 8px;
+            display: none; /* Hidden by default */
+            margin-bottom: 5px; /* Space between image and button */
+        }
+        .upload-box button.capture-trigger-btn,
+        .upload-box button.remove-image-btn {
+            background-color: #4f46e5;
+            color: white;
+            padding: 0.5rem 1rem; /* Slightly smaller padding for these buttons */
+            border-radius: 0.5rem; /* Slightly smaller border-radius */
+            font-weight: 600;
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
+            border: none;
+            flex-shrink: 0; /* Prevent button from shrinking */
+        }
+        .upload-box button.capture-trigger-btn:hover,
+        .upload-box button.remove-image-btn:hover {
+            background-color: #4338ca;
+            transform: translateY(-1px); /* Smaller lift on hover */
+        }
+        .upload-box button.remove-image-btn {
+            background-color: #ef4444; /* Red color for remove button */
+        }
+        .upload-box button.remove-image-btn:hover {
+            background-color: #dc2626;
+        }
+
+        /* Modal specific styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
             width: 100%;
-            padding-top: 75%; /* 4:3 aspect ratio (height / width * 100%) */
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+        }
+        .modal.show {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            background-color: #ffffff;
+            border-radius: 1.5rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2), 0 10px 10px -5px rgba(0, 0, 0, 0.08);
+            max-width: 95vw; /* Responsive width for modal */
+            width: 500px; /* Max width for desktop */
             overflow: hidden;
-            border-radius: 1.5rem 1.5rem 0 0;
-            background-color: #000; /* Black background for video area */
+            display: flex;
+            flex-direction: column;
+        }
+        .modal-header {
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .modal-header h2 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #374151;
+        }
+        .modal-close-btn {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            color: #6b7280;
+            transition: color 0.2s;
+        }
+        .modal-close-btn:hover {
+            color: #1f2937;
+        }
+
+        /* Camera app specific styles (from previous version, adapted for modal) */
+        .camera-area {
+            position: relative;
+            width: 100%;
+            padding-top: 75%; /* 4:3 aspect ratio */
+            overflow: hidden;
+            background-color: #000;
         }
         video {
             position: absolute;
@@ -46,11 +165,10 @@
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: cover; /* Ensures video fills the area without distortion */
+            object-fit: cover;
             display: block;
-            transform: scaleX(-1); /* Mirror the video horizontally for a "selfie" view */
+            transform: scaleX(-1); /* Mirror for selfie view */
         }
-        /* Hidden canvas for processing video frames */
         #hiddenCanvas {
             display: none;
         }
@@ -58,25 +176,19 @@
             position: absolute;
             top: 50%;
             left: 50%;
-            transform: translate(-50%, -50%); /* Center the overlay */
-            width: 60%; /* Size of the outline relative to camera area */
+            transform: translate(-50%, -50%);
+            width: 60%;
             height: 60%;
-            border: 4px solid; /* Border color will be set by JS */
-            border-radius: 1rem; /* Rounded corners for the outline */
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            font-size: 1.5rem;
-            color: white;
-            font-weight: bold;
-            pointer-events: none; /* Allow clicks to pass through to video/buttons below */
-            transition: border-color 0.3s ease-in-out; /* Smooth color transition */
+            border: 4px solid;
+            border-radius: 1rem;
+            pointer-events: none;
+            transition: border-color 0.3s ease-in-out;
         }
         .red-outline {
-            border-color: #ef4444; /* Red color for no hand */
+            border-color: #ef4444;
         }
         .green-outline {
-            border-color: #22c55e; /* Green color for hand detected */
+            border-color: #22c55e;
         }
         .controls {
             padding: 1.5rem;
@@ -88,16 +200,16 @@
             display: flex;
             justify-content: center;
             gap: 0.75rem;
-            flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
+            flex-wrap: wrap;
         }
         button {
             padding: 0.75rem 1.5rem;
-            border-radius: 0.75rem; /* Rounded buttons */
+            border-radius: 0.75rem;
             font-weight: 600;
             transition: all 0.2s ease-in-out;
             cursor: pointer;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-            border: none; /* Remove default border */
+            border: none;
         }
         button:hover {
             transform: translateY(-2px);
@@ -121,11 +233,18 @@
         .btn-secondary:hover {
             background-color: #d1d5db;
         }
+        .btn-capture {
+            background-color: #10b981;
+            color: white;
+        }
+        .btn-capture:hover {
+            background-color: #059669;
+        }
         input[type="range"] {
             width: 100%;
-            -webkit-appearance: none; /* Remove default styling */
+            -webkit-appearance: none;
             height: 8px;
-            background: #e0e7ff; /* Light blue track */
+            background: #e0e7ff;
             border-radius: 5px;
             outline: none;
             transition: opacity .2s;
@@ -135,7 +254,7 @@
             appearance: none;
             width: 20px;
             height: 20px;
-            background: #4f46e5; /* Primary color thumb */
+            background: #4f46e5;
             border-radius: 50%;
             cursor: pointer;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
@@ -153,51 +272,80 @@
             border-radius: 0.5rem;
             text-align: center;
             font-size: 0.875rem;
-            display: none; /* Hidden by default */
+            display: none;
             margin-bottom: 0.5rem;
         }
         .message-info {
-            background-color: #e0e7ff; /* light blue */
-            color: #4f46e5; /* blue */
+            background-color: #e0e7ff;
+            color: #4f46e5;
         }
         .message-warning {
-            background-color: #fffbeb; /* light yellow */
-            color: #f59e0b; /* yellow */
+            background-color: #fffbeb;
+            color: #f59e0b;
         }
         .message-error {
-            background-color: #fef2f2; /* light red */
-            color: #ef4444; /* red */
+            background-color: #fef2f2;
+            color: #ef4444;
         }
         .message-success {
-            background-color: #ecfdf5; /* light green */
-            color: #10b981; /* green */
+            background-color: #ecfdf5;
+            color: #10b981;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="camera-area">
-            <video id="cameraFeed" autoplay playsinline></video>
-            <!-- Hidden canvas for processing video frames -->
-            <canvas id="hiddenCanvas"></canvas>
-            <!-- Hand Outline Overlay -->
-            <div id="handOutlineOverlay" class="hand-outline-overlay red-outline">
-                <!-- You could add an SVG icon here for a more detailed hand outline -->
-            </div>
+
+    <div class="palm-upload-container">
+        <div class="upload-box" id="leftPalmBox">
+            <input type="hidden" id="leftPalmInput" name="leftPalmPhoto" />
+            <img id="leftPalmPreview" src="" alt="Left Palm Preview">
+            <span id="leftPalmText">Left Palm Photo *</span>
+            <button class="capture-trigger-btn" data-palm="left">Capture Left Palm</button>
+            <button class="remove-image-btn hidden" data-palm="left">Remove</button>
         </div>
-        <div class="controls">
-            <div id="message-box" class="message-info"></div>
-            <div class="button-group">
-                <button id="zoomOutBtn" class="btn-secondary">Zoom Out</button>
-                <button id="zoomInBtn" class="btn-primary">Zoom In</button>
+
+        <div class="upload-box" id="rightPalmBox">
+            <input type="hidden" id="rightPalmInput" name="rightPalmPhoto" />
+            <img id="rightPalmPreview" src="" alt="Right Palm Preview">
+            <span id="rightPalmText">Right Palm Photo *</span>
+            <button class="capture-trigger-btn" data-palm="right">Capture Right Palm</button>
+            <button class="remove-image-btn hidden" data-palm="right">Remove</button>
+        </div>
+    </div>
+
+    <!-- The Modal for Camera Application -->
+    <div id="cameraModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Capture Palm Photo</h2>
+                <button class="modal-close-btn" id="closeModalBtn">&times;</button>
             </div>
-            <label for="zoomSlider" class="text-center text-gray-700 font-medium">Zoom Level:</label>
-            <input type="range" id="zoomSlider" min="0" max="100" value="0" class="w-full">
+            <div class="camera-area">
+                <video id="cameraFeed" autoplay playsinline></video>
+                <canvas id="hiddenCanvas"></canvas>
+                <div id="handOutlineOverlay" class="hand-outline-overlay red-outline"></div>
+            </div>
+            <div class="controls">
+                <div id="message-box" class="message-info"></div>
+                <div class="button-group">
+                    <button id="zoomOutBtn" class="btn-secondary">Zoom Out</button>
+                    <button id="zoomInBtn" class="btn-primary">Zoom In</button>
+                    <button id="captureBtn" class="btn-capture" disabled>Capture Image</button>
+                </div>
+                <label for="zoomSlider" class="text-center text-gray-700 font-medium">Zoom Level:</label>
+                <input type="range" id="zoomSlider" min="0" max="100" value="0" class="w-full" disabled>
+            </div>
         </div>
     </div>
 
     <script>
-        // Get references to DOM elements
+        // --- DOM Elements ---
+        const cameraModal = document.getElementById('cameraModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const modalTitle = document.getElementById('modalTitle');
+        const captureTriggerButtons = document.querySelectorAll('.capture-trigger-btn');
+        const removeImageButtons = document.querySelectorAll('.remove-image-btn'); // New: Remove buttons
+
         const cameraFeed = document.getElementById('cameraFeed');
         const zoomInBtn = document.getElementById('zoomInBtn');
         const zoomOutBtn = document.getElementById('zoomOutBtn');
@@ -206,18 +354,34 @@
         const handOutlineOverlay = document.getElementById('handOutlineOverlay');
         const hiddenCanvas = document.getElementById('hiddenCanvas');
         const ctx = hiddenCanvas.getContext('2d');
+        const captureBtn = document.getElementById('captureBtn');
 
+        const leftPalmInput = document.getElementById('leftPalmInput');
+        const leftPalmPreview = document.getElementById('leftPalmPreview');
+        const leftPalmText = document.getElementById('leftPalmText');
+        const leftPalmRemoveBtn = document.querySelector('#leftPalmBox .remove-image-btn'); // Specific remove button for left
+
+        const rightPalmInput = document.getElementById('rightPalmInput');
+        const rightPalmPreview = document.getElementById('rightPalmPreview');
+        const rightPalmText = document.getElementById('rightPalmText');
+        const rightPalmRemoveBtn = document.querySelector('#rightPalmBox .remove-image-btn'); // Specific remove button for right
+
+        // --- State Variables ---
         let mediaStream = null;
         let videoTrack = null;
         let zoomCapabilities = null;
-        let currentZoom = 0; // Initialize current zoom level
-        let isHandDetected = false; // State for actual hand detection
-        let lightingCondition = 'unknown'; // State for lighting condition ('good', 'low', 'high')
-        let handposeModel = null; // Variable to hold the loaded handpose model
+        let currentZoom = 0;
+        let isHandDetected = false;
+        let lightingCondition = 'unknown';
+        let handposeModel = null;
+        let currentPalmTarget = null; // 'left' or 'right'
+        let animationFrameId = null; // To manage requestAnimationFrame loop
 
         // Lighting thresholds (adjust as needed for your environment)
-        const LOW_BRIGHTNESS_THRESHOLD = 60; // Average pixel value below this is considered low light
-        const HIGH_BRIGHTNESS_THRESHOLD = 180; // Average pixel value above this is considered high light (overexposed)
+        const LOW_BRIGHTNESS_THRESHOLD = 60;
+        const HIGH_BRIGHTNESS_THRESHOLD = 180;
+
+        // --- Utility Functions ---
 
         /**
          * Displays a message in the message box.
@@ -227,7 +391,7 @@
         function updateMessageBox(message, type = 'info') {
             messageBox.textContent = message;
             messageBox.style.display = 'block';
-            messageBox.className = `message-box message-${type}`; // Apply dynamic class
+            messageBox.className = `message-box message-${type}`;
         }
 
         /**
@@ -249,17 +413,23 @@
                     zoomSlider.min = zoomCapabilities.min;
                     zoomSlider.max = zoomCapabilities.max;
                     zoomSlider.step = zoomCapabilities.step;
-                    currentZoom = zoomCapabilities.min; // Start at min zoom
+                    currentZoom = zoomCapabilities.min;
                     zoomSlider.value = currentZoom;
-                    updateZoomDisplay(); // Update initial display
-                    updateMessageBox('Camera access granted. Zoom controls available.', 'info');
+                    zoomInBtn.disabled = false; // Enable zoom buttons
+                    zoomOutBtn.disabled = false;
+                    zoomSlider.disabled = false; // Enable zoom slider
+                    updateZoomDisplay();
+                    updateMessageBox('Camera ready. Zoom controls available.', 'info');
+                    console.log('Zoom capabilities:', zoomCapabilities);
                 } else {
                     updateMessageBox('Zoom is not supported by your camera or browser.', 'warning');
                     zoomInBtn.disabled = true;
                     zoomOutBtn.disabled = true;
                     zoomSlider.disabled = true;
+                    console.log('Zoom not supported by device/browser.');
                 }
                 updateHandOutline(); // Set initial outline color to red
+                checkCaptureButtonState(); // Initial check for capture button
 
                 // Wait for the video to load metadata to get its dimensions
                 cameraFeed.onloadedmetadata = () => {
@@ -281,6 +451,23 @@
                 zoomInBtn.disabled = true;
                 zoomOutBtn.disabled = true;
                 zoomSlider.disabled = true;
+                captureBtn.disabled = true;
+            }
+        }
+
+        /**
+         * Stops the camera feed and cancels the animation loop.
+         */
+        function stopCamera() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                cameraFeed.srcObject = null;
+                mediaStream = null;
+                videoTrack = null;
+            }
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
             }
         }
 
@@ -294,16 +481,16 @@
                 return;
             }
 
-            // Clamp the new zoom value within the capabilities' min and max
             newZoom = Math.max(zoomCapabilities.min, Math.min(newZoom, zoomCapabilities.max));
+            console.log('Attempting to apply zoom:', newZoom);
 
-            // Apply the new constraints
             videoTrack.applyConstraints({
                 advanced: [{ zoom: newZoom }]
             }).then(() => {
                 currentZoom = newZoom;
                 zoomSlider.value = currentZoom;
                 updateZoomDisplay();
+                console.log('Zoom applied successfully to:', currentZoom);
             }).catch(error => {
                 console.error('Error applying zoom:', error);
                 updateMessageBox(`Failed to apply zoom: ${error.message}`, 'error');
@@ -339,13 +526,11 @@
         function analyzeLighting(imageData) {
             const data = imageData.data;
             let totalBrightness = 0;
-            const pixelCount = data.length / 4; // Each pixel has R, G, B, A
+            const pixelCount = data.length / 4;
 
             if (pixelCount === 0) return 'unknown';
 
-            // Calculate average brightness (luminance)
             for (let i = 0; i < data.length; i += 4) {
-                // Approximate luminance: 0.299*R + 0.587*G + 0.114*B
                 totalBrightness += (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
             }
             const averageBrightness = totalBrightness / pixelCount;
@@ -389,6 +574,16 @@
             updateMessageBox(fullMessage, messageType);
         }
 
+        /**
+         * Enables or disables the capture button based on hand detection and lighting.
+         */
+        function checkCaptureButtonState() {
+            if (isHandDetected && lightingCondition === 'good') {
+                captureBtn.disabled = false;
+            } else {
+                captureBtn.disabled = true;
+            }
+        }
 
         /**
          * Loads the Handpose model.
@@ -408,9 +603,8 @@
          * Starts the continuous hand and lighting detection loop.
          */
         async function startDetectionLoop() {
-            if (!handposeModel || !cameraFeed.videoWidth || !cameraFeed.videoHeight) {
-                // If model isn't loaded or video dimensions aren't ready, try again after a short delay
-                requestAnimationFrame(startDetectionLoop);
+            if (!handposeModel || !cameraFeed.videoWidth || !cameraFeed.videoHeight || !mediaStream) {
+                animationFrameId = requestAnimationFrame(startDetectionLoop); // Keep trying until camera is ready
                 return;
             }
 
@@ -430,15 +624,138 @@
             // Update UI based on detection and lighting
             updateHandOutline();
             updateCombinedStatusMessage();
+            checkCaptureButtonState(); // Check button state in every frame
 
-            // Request the next animation frame to continue the loop
-            requestAnimationFrame(startDetectionLoop);
+            animationFrameId = requestAnimationFrame(startDetectionLoop);
         }
 
-        // Event Listeners
+        /**
+         * Captures the current frame from the camera feed and displays it in the target palm box.
+         */
+        function captureImage() {
+            if (!cameraFeed.srcObject) {
+                updateMessageBox('Camera not active. Cannot capture image.', 'error');
+                return;
+            }
+            if (captureBtn.disabled) {
+                updateMessageBox('Cannot capture: Hand not detected or lighting is poor.', 'warning');
+                return;
+            }
+
+            // Ensure the hidden canvas has the correct dimensions
+            hiddenCanvas.width = cameraFeed.videoWidth;
+            hiddenCanvas.height = cameraFeed.videoHeight;
+
+            // Draw the current video frame onto the hidden canvas
+            // Apply the same mirroring as the video element for consistency
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.drawImage(cameraFeed, -hiddenCanvas.width, 0, hiddenCanvas.width, hiddenCanvas.height);
+            ctx.restore();
+
+            // Get the image data as a PNG data URL
+            const imageDataUrl = hiddenCanvas.toDataURL('image/png');
+
+            let targetInput, targetPreview, targetText, targetRemoveBtn;
+
+            if (currentPalmTarget === 'left') {
+                targetInput = leftPalmInput;
+                targetPreview = leftPalmPreview;
+                targetText = leftPalmText;
+                targetRemoveBtn = leftPalmRemoveBtn;
+            } else if (currentPalmTarget === 'right') {
+                targetInput = rightPalmInput;
+                targetPreview = rightPalmPreview;
+                targetText = rightPalmText;
+                targetRemoveBtn = rightPalmRemoveBtn;
+            }
+
+            if (targetInput && targetPreview && targetText && targetRemoveBtn) {
+                targetPreview.src = imageDataUrl;
+                targetPreview.style.display = 'block';
+                targetText.style.display = 'none';
+                targetInput.value = imageDataUrl;
+                targetRemoveBtn.classList.remove('hidden'); // Show remove button
+            }
+
+            updateMessageBox('Image captured successfully!', 'success');
+            closeCameraModal(); // Close the modal after capture
+        }
+
+        /**
+         * Removes a captured image from the display and clears the hidden input.
+         * @param {string} palm - 'left' or 'right' to indicate which palm image to remove.
+         */
+        function removeImage(palm) {
+            let targetInput, targetPreview, targetText, targetRemoveBtn;
+
+            if (palm === 'left') {
+                targetInput = leftPalmInput;
+                targetPreview = leftPalmPreview;
+                targetText = leftPalmText;
+                targetRemoveBtn = leftPalmRemoveBtn;
+            } else if (palm === 'right') {
+                targetInput = rightPalmInput;
+                targetPreview = rightPalmPreview;
+                targetText = rightPalmText;
+                targetRemoveBtn = rightPalmRemoveBtn;
+            }
+
+            if (targetInput && targetPreview && targetText && targetRemoveBtn) {
+                targetInput.value = ''; // Clear the hidden input value
+                targetPreview.src = ''; // Clear the image source
+                targetPreview.style.display = 'none'; // Hide the image
+                targetText.style.display = 'flex'; // Show the text again (flex for centering)
+                targetRemoveBtn.classList.add('hidden'); // Hide the remove button
+                updateMessageBox(`${palm === 'left' ? 'Left' : 'Right'} palm image removed.`, 'info');
+            }
+        }
+
+        // --- Modal Control Functions ---
+
+        /**
+         * Opens the camera modal and initializes the camera.
+         * @param {string} palm - 'left' or 'right' to indicate which palm is being captured.
+         */
+        async function openCameraModal(palm) {
+            currentPalmTarget = palm;
+            modalTitle.textContent = `Capture ${palm === 'left' ? 'Left' : 'Right'} Palm Photo`;
+            cameraModal.classList.add('show');
+            await initCamera(); // Initialize camera when modal opens
+        }
+
+        /**
+         * Closes the camera modal and stops the camera.
+         */
+        function closeCameraModal() {
+            cameraModal.classList.remove('show');
+            stopCamera(); // Stop camera when modal closes
+            currentPalmTarget = null; // Clear target
+            updateMessageBox('', 'info'); // Clear message box
+        }
+
+        // --- Event Listeners ---
+
+        // Listen for clicks on the capture trigger buttons
+        captureTriggerButtons.forEach(button => {
+            button.addEventListener('click', (event) => {
+                const palm = event.target.dataset.palm;
+                openCameraModal(palm);
+            });
+        });
+
+        // Listen for clicks on the remove image buttons
+        removeImageButtons.forEach(button => {
+            button.addEventListener('click', (event) => {
+                const palm = event.target.dataset.palm;
+                removeImage(palm);
+            });
+        });
+
+        closeModalBtn.addEventListener('click', closeCameraModal);
+
         zoomInBtn.addEventListener('click', () => {
             if (zoomCapabilities) {
-                // Increase zoom by a step, or a fixed amount if step is not granular enough
                 let newZoom = currentZoom + (zoomCapabilities.step || (zoomCapabilities.max - zoomCapabilities.min) / 10);
                 applyZoom(newZoom);
             }
@@ -446,7 +763,6 @@
 
         zoomOutBtn.addEventListener('click', () => {
             if (zoomCapabilities) {
-                // Decrease zoom by a step
                 let newZoom = currentZoom - (zoomCapabilities.step || (zoomCapabilities.max - zoomCapabilities.min) / 10);
                 applyZoom(newZoom);
             }
@@ -459,17 +775,17 @@
             }
         });
 
-        // Initialize camera and load handpose model when the window loads
+        captureBtn.addEventListener('click', captureImage);
+
+        // --- Initial Load ---
         window.onload = async () => {
-            await loadHandposeModel(); // Load the ML model first
-            await initCamera(); // Then initialize the camera
+            await loadHandposeModel(); // Load the ML model once when the page loads
+            // Camera will be initialized when the modal is opened
         };
 
-        // Cleanup: Stop camera stream when the page is closed or navigated away
+        // Cleanup: Stop camera stream if the page is closed (as a fallback, modal close handles it too)
         window.addEventListener('beforeunload', () => {
-            if (mediaStream) {
-                mediaStream.getTracks().forEach(track => track.stop());
-            }
+            stopCamera();
         });
     </script>
 </body>
