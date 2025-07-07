@@ -652,35 +652,93 @@
             hiddenCanvas.width = displayWidth;
             hiddenCanvas.height = displayHeight;
 
-            // Calculate source rectangle to mimic object-fit: cover
-            const videoAspectRatio = videoWidth / videoHeight;
-            const displayAspectRatio = displayWidth / displayHeight;
+            // Determine if the video stream is intrinsically portrait (height > width)
+            const isVideoStreamPortrait = videoHeight > videoWidth;
+            // Determine if the display area (camera-area) is landscape (width > height)
+            const isDisplayLandscape = displayWidth > displayHeight;
 
             let sx = 0, sy = 0; // Source X, Y
             let sWidth = videoWidth; // Source Width
             let sHeight = videoHeight; // Source Height
 
-            if (videoAspectRatio > displayAspectRatio) {
-                // Video is wider than display area, so it's cropped horizontally
-                sHeight = videoHeight; // Use full video height
-                sWidth = sHeight * displayAspectRatio; // Calculate source width based on display aspect ratio
-                sx = (videoWidth - sWidth) / 2; // Calculate X offset to center
-            } else {
-                // Video is taller than or same aspect ratio as display area, so it's cropped vertically
-                sWidth = videoWidth; // Use full video width
-                sHeight = sWidth / displayAspectRatio; // Calculate source height based on display aspect ratio
-                sy = (videoHeight - sHeight) / 2; // Calculate Y offset to center
-            }
-
-            // Draw the current video frame onto the hidden canvas
-            // Apply the same mirroring as the video element for consistency
             ctx.save();
-            ctx.scale(-1, 1); // Apply mirroring for selfie view
-            // Draw the calculated source rectangle (sx, sy, sWidth, sHeight)
-            // onto the destination canvas (dx, dy, dWidth, dHeight)
-            // dx will be -hiddenCanvas.width because of the scale(-1, 1) transform
-            ctx.drawImage(cameraFeed, sx, sy, sWidth, sHeight, -hiddenCanvas.width, 0, hiddenCanvas.width, hiddenCanvas.height);
-            ctx.restore();
+            // Apply mirroring first
+            ctx.translate(hiddenCanvas.width, 0);
+            ctx.scale(-1, 1);
+
+            // If the video stream is portrait AND the display is landscape,
+            // we need to effectively rotate the source image before cropping and drawing.
+            if (isVideoStreamPortrait && isDisplayLandscape) {
+                // Create a temporary canvas to draw the raw video and then rotate it
+                const tempCanvas = document.createElement('canvas');
+                const tempCtx = tempCanvas.getContext('2d');
+
+                // Draw the raw video onto the temporary canvas (no rotation or mirroring yet)
+                tempCanvas.width = videoWidth;
+                tempCanvas.height = videoHeight;
+                tempCtx.drawImage(cameraFeed, 0, 0, videoWidth, videoHeight);
+
+                // Create another temporary canvas for the rotated version
+                const rotatedTempCanvas = document.createElement('canvas');
+                const rotatedTempCtx = rotatedTempCanvas.getContext('2d');
+
+                // Swap dimensions for the rotated canvas
+                rotatedTempCanvas.width = videoHeight; // New width is old height
+                rotatedTempCanvas.height = videoWidth; // New height is old width
+
+                // Rotate the context of the rotatedTempCanvas and draw the original tempCanvas onto it
+                rotatedTempCtx.save();
+                rotatedTempCtx.translate(rotatedTempCanvas.width / 2, rotatedTempCanvas.height / 2);
+                rotatedTempCtx.rotate(90 * Math.PI / 180); // Rotate 90 degrees clockwise
+                rotatedTempCtx.drawImage(tempCanvas, -tempCanvas.width / 2, -tempCanvas.height / 2);
+                rotatedTempCtx.restore();
+
+                // Now, the `rotatedTempCanvas` holds the video content in a landscape orientation.
+                // Use this as the source for the final drawImage, and apply object-fit: cover logic.
+                sWidth = rotatedTempCanvas.width;
+                sHeight = rotatedTempCanvas.height;
+                sx = 0;
+                sy = 0;
+
+                const finalSourceAspectRatio = sWidth / sHeight;
+                const targetAspectRatio = displayWidth / displayHeight;
+
+                if (finalSourceAspectRatio > targetAspectRatio) {
+                    // Rotated source is wider than target, crop horizontally
+                    sHeight = sHeight;
+                    sWidth = sHeight * targetAspectRatio;
+                    sx = (rotatedTempCanvas.width - sWidth) / 2;
+                } else {
+                    // Rotated source is taller than or same aspect ratio as target, crop vertically
+                    sWidth = sWidth;
+                    sHeight = sWidth / targetAspectRatio;
+                    sy = (rotatedTempCanvas.height - sHeight) / 2;
+                }
+
+                // Draw from the rotated temp canvas to the final hiddenCanvas
+                ctx.drawImage(rotatedTempCanvas, sx, sy, sWidth, sHeight, -hiddenCanvas.width, 0, hiddenCanvas.width, hiddenCanvas.height);
+
+            } else {
+                // No rotation needed for the source (either video is already landscape, or display is portrait)
+                // Use the existing object-fit: cover logic directly on the video feed.
+
+                const currentVideoAspectRatio = videoWidth / videoHeight;
+                const currentDisplayAspectRatio = displayWidth / displayHeight;
+
+                if (currentVideoAspectRatio > currentDisplayAspectRatio) {
+                    sHeight = videoHeight;
+                    sWidth = sHeight * currentDisplayAspectRatio;
+                    sx = (videoWidth - sWidth) / 2;
+                } else {
+                    sWidth = videoWidth;
+                    sHeight = sWidth / currentDisplayAspectRatio;
+                    sy = (videoHeight - sHeight) / 2;
+                }
+
+                // Draw the current video frame onto the hidden canvas
+                ctx.drawImage(cameraFeed, sx, sy, sWidth, sHeight, -hiddenCanvas.width, 0, hiddenCanvas.width, hiddenCanvas.height);
+            }
+            ctx.restore(); // Restore the context after mirroring transform
 
             // Get the image data as a PNG data URL
             const imageDataUrl = hiddenCanvas.toDataURL('image/png');
