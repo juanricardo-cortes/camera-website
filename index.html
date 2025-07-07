@@ -35,6 +35,14 @@
             margin-top: 20px;
             flex-wrap: wrap; /* Allow wrapping on small screens */
         }
+        /* New container for each palm box and its buttons */
+        .palm-input-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px; /* Space between box and buttons */
+        }
+
         .upload-box {
             border: 2px dashed #d7bfb9;
             border-radius: 8px;
@@ -70,30 +78,33 @@
             object-fit: contain; /* Contain the image within the box */
             border-radius: 8px;
             display: none; /* Hidden by default */
-            margin-bottom: 5px; /* Space between image and button */
+            /* No margin-bottom here, as buttons are outside */
         }
-        .upload-box button.capture-trigger-btn,
-        .upload-box button.remove-image-btn {
+        /* Styles for the buttons now they are outside the box */
+        button.capture-trigger-btn,
+        button.remove-image-btn {
             background-color: #4f46e5;
             color: white;
-            padding: 0.5rem 1rem; /* Slightly smaller padding for these buttons */
-            border-radius: 0.5rem; /* Slightly smaller border-radius */
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
             font-weight: 600;
             transition: all 0.2s ease-in-out;
             cursor: pointer;
             box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
             border: none;
-            flex-shrink: 0; /* Prevent button from shrinking */
+            flex-shrink: 0;
+            width: 100%; /* Make buttons full width of the group */
+            max-width: 180px; /* Match upload-box width */
         }
-        .upload-box button.capture-trigger-btn:hover,
-        .upload-box button.remove-image-btn:hover {
+        button.capture-trigger-btn:hover,
+        button.remove-image-btn:hover {
             background-color: #4338ca;
-            transform: translateY(-1px); /* Smaller lift on hover */
+            transform: translateY(-1px);
         }
-        .upload-box button.remove-image-btn {
+        button.remove-image-btn {
             background-color: #ef4444; /* Red color for remove button */
         }
-        .upload-box button.remove-image-btn:hover {
+        button.remove-image-btn:hover {
             background-color: #dc2626;
         }
 
@@ -306,20 +317,24 @@
 <body>
 
     <div class="palm-upload-container">
-        <div class="upload-box" id="leftPalmBox">
-            <input type="hidden" id="leftPalmInput" name="leftPalmPhoto" />
-            <img id="leftPalmPreview" src="" alt="Left Palm Preview">
-            <span id="leftPalmText">Left Palm Photo *</span>
+        <div class="palm-input-group">
+            <div class="upload-box" id="leftPalmBox">
+                <input type="hidden" id="leftPalmInput" name="leftPalmPhoto" />
+                <img id="leftPalmPreview" src="" alt="Left Palm Preview">
+                <span id="leftPalmText">Left Palm Photo *</span>
+            </div>
             <button class="capture-trigger-btn" data-palm="left">Capture Left Palm</button>
-            <button class="remove-image-btn hidden" data-palm="left">Remove</button>
+            <button class="remove-image-btn hidden" data-palm="left">Remove Left Palm</button>
         </div>
 
-        <div class="upload-box" id="rightPalmBox">
-            <input type="hidden" id="rightPalmInput" name="rightPalmPhoto" />
-            <img id="rightPalmPreview" src="" alt="Right Palm Preview">
-            <span id="rightPalmText">Right Palm Photo *</span>
+        <div class="palm-input-group">
+            <div class="upload-box" id="rightPalmBox">
+                <input type="hidden" id="rightPalmInput" name="rightPalmPhoto" />
+                <img id="rightPalmPreview" src="" alt="Right Palm Preview">
+                <span id="rightPalmText">Right Palm Photo *</span>
+            </div>
             <button class="capture-trigger-btn" data-palm="right">Capture Right Palm</button>
-            <button class="remove-image-btn hidden" data-palm="right">Remove</button>
+            <button class="remove-image-btn hidden" data-palm="right">Remove Right Palm</button>
         </div>
     </div>
 
@@ -354,8 +369,9 @@
         const cameraModal = document.getElementById('cameraModal');
         const closeModalBtn = document.getElementById('closeModalBtn');
         const modalTitle = document.getElementById('modalTitle');
-        const captureTriggerButtons = document.querySelectorAll('.capture-trigger-btn');
-        const removeImageButtons = document.querySelectorAll('.remove-image-btn');
+        // Select buttons by class, now they are direct children of palm-input-group
+        const captureTriggerButtons = document.querySelectorAll('.palm-input-group .capture-trigger-btn');
+        const removeImageButtons = document.querySelectorAll('.palm-input-group .remove-image-btn');
 
         const cameraFeed = document.getElementById('cameraFeed');
         const zoomInBtn = document.getElementById('zoomInBtn');
@@ -366,17 +382,19 @@
         const hiddenCanvas = document.getElementById('hiddenCanvas');
         const ctx = hiddenCanvas.getContext('2d');
         const captureBtn = document.getElementById('captureBtn');
-        const toggleCameraBtn = document.getElementById('toggleCameraBtn'); // New: Toggle Camera Button
+        const toggleCameraBtn = document.getElementById('toggleCameraBtn');
 
+        // References for left palm elements
         const leftPalmInput = document.getElementById('leftPalmInput');
         const leftPalmPreview = document.getElementById('leftPalmPreview');
         const leftPalmText = document.getElementById('leftPalmText');
-        const leftPalmRemoveBtn = document.querySelector('#leftPalmBox .remove-image-btn');
+        const leftPalmRemoveBtn = document.querySelector('#leftPalmBox + .capture-trigger-btn + .remove-image-btn'); // Select by sibling
 
+        // References for right palm elements
         const rightPalmInput = document.getElementById('rightPalmInput');
         const rightPalmPreview = document.getElementById('rightPalmPreview');
         const rightPalmText = document.getElementById('rightPalmText');
-        const rightPalmRemoveBtn = document.querySelector('#rightPalmBox .remove-image-btn');
+        const rightPalmRemoveBtn = document.querySelector('#rightPalmBox + .capture-trigger-btn + .remove-image-btn'); // Select by sibling
 
         // --- State Variables ---
         let mediaStream = null;
