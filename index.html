@@ -648,83 +648,85 @@
             const displayWidth = cameraFeed.offsetWidth;
             const displayHeight = cameraFeed.offsetHeight;
 
-            // Set hidden canvas dimensions to match the *displayed* video element's dimensions
+            // Set hidden canvas dimensions to match the *displayed* video element's dimensions.
             // This is the target size and aspect ratio for the final captured image.
             hiddenCanvas.width = displayWidth;
             hiddenCanvas.height = displayHeight;
 
-            // --- Create a temporary canvas to handle potential rotation and then cropping ---
-            const tempSourceCanvas = document.createElement('canvas');
-            const tempSourceCtx = tempSourceCanvas.getContext('2d');
+            // Clear the canvas before drawing
+            ctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
-            let sourceWidthToUse = videoNativeWidth;
-            let sourceHeightToUse = videoNativeHeight;
-            let rotationAngle = 0; // 0 or 90 degrees (in radians)
+            // Create a temporary canvas to draw the raw video frame.
+            const tempRawCanvas = document.createElement('canvas');
+            const tempRawCtx = tempRawCanvas.getContext('2d');
+            tempRawCanvas.width = videoNativeWidth;
+            tempRawCanvas.height = videoNativeHeight;
+            tempRawCtx.drawImage(cameraFeed, 0, 0, videoNativeWidth, videoNativeHeight);
 
-            // Determine if the native video stream is portrait vs. landscape
-            const isVideoNativePortrait = videoNativeHeight > videoNativeWidth;
-            // Determine if the display area (camera-area) is landscape (width > height)
+            // Determine if the *source* image (from tempRawCanvas) needs to be rotated
+            // to match the *display's* orientation before cropping.
+            // This is the crucial part for mobile phones that report portrait native video but display landscape.
+            const isRawVideoPortrait = videoNativeHeight > videoNativeWidth;
             const isDisplayLandscape = displayWidth > displayHeight;
 
-            // If the native video is portrait AND the display is landscape, we need to rotate.
-            // OR if the native video is landscape AND the display is portrait, we also need to rotate.
-            if ((isVideoNativePortrait && isDisplayLandscape) || (!isVideoNativePortrait && !isDisplayLandscape)) {
-                // If it's portrait video on landscape display, or landscape video on portrait display, rotate 90.
-                // This makes the source image's orientation match the display's orientation.
-                rotationAngle = 90 * Math.PI / 180; // Rotate 90 degrees
-                // Swap dimensions for the temporary canvas that will hold the rotated image
-                tempSourceCanvas.width = videoNativeHeight;
-                tempSourceCanvas.height = videoNativeWidth;
+            let sourceForCropping = tempRawCanvas; // Default source for cropping
+            let sourceForCroppingWidth = videoNativeWidth;
+            let sourceForCroppingHeight = videoNativeHeight;
 
-                tempSourceCtx.save();
-                tempSourceCtx.translate(tempSourceCanvas.width / 2, tempSourceCanvas.height / 2);
-                tempSourceCtx.rotate(rotationAngle);
-                // Draw the original video onto the rotated context, centered
-                tempSourceCtx.drawImage(cameraFeed, -videoNativeWidth / 2, -videoNativeHeight / 2, videoNativeWidth, videoNativeHeight);
-                tempSourceCtx.restore();
+            // If the raw video is portrait AND the display is landscape, we need to rotate the source.
+            // This is the most common scenario for phones.
+            if (isRawVideoPortrait && isDisplayLandscape) {
+                const rotatedSourceCanvas = document.createElement('canvas');
+                const rotatedSourceCtx = rotatedSourceCanvas.getContext('2d');
 
-                // Update source dimensions to be used for cropping after rotation
-                sourceWidthToUse = tempSourceCanvas.width;
-                sourceHeightToUse = tempSourceCanvas.height;
+                rotatedSourceCanvas.width = videoNativeHeight; // Swap dimensions
+                rotatedSourceCanvas.height = videoNativeWidth;
 
-            } else {
-                // No rotation needed, just draw the raw video to the temporary canvas
-                tempSourceCanvas.width = videoNativeWidth;
-                tempSourceCanvas.height = videoNativeHeight;
-                tempSourceCtx.drawImage(cameraFeed, 0, 0, videoNativeWidth, videoNativeHeight);
+                rotatedSourceCtx.save();
+                rotatedSourceCtx.translate(rotatedSourceCanvas.width / 2, rotatedSourceCanvas.height / 2);
+                rotatedSourceCtx.rotate(90 * Math.PI / 180); // Rotate 90 degrees clockwise
+                rotatedSourceCtx.drawImage(tempRawCanvas, -videoNativeWidth / 2, -videoNativeHeight / 2, videoNativeWidth, videoNativeHeight);
+                rotatedSourceCtx.restore();
+
+                sourceForCropping = rotatedSourceCanvas; // Use the rotated canvas as the source for cropping
+                sourceForCroppingWidth = rotatedSourceCanvas.width;
+                sourceForCroppingHeight = rotatedSourceCanvas.height;
             }
+            // Note: If the video is landscape and display is portrait, the existing object-fit: cover logic
+            // should handle the cropping correctly without explicit rotation here, as the target canvas
+            // will be portrait.
 
-            // --- Now, calculate cropping parameters from the (potentially rotated) tempSourceCanvas ---
-            // This mimics object-fit: cover behavior to match the visual display.
-            const sourceAspectRatio = sourceWidthToUse / sourceHeightToUse;
+            // --- Calculate cropping parameters to mimic object-fit: cover ---
+            // Use the dimensions of the (potentially rotated) sourceForCropping and the final hiddenCanvas dimensions.
+            const sourceAspectRatio = sourceForCroppingWidth / sourceForCroppingHeight;
             const targetAspectRatio = displayWidth / displayHeight; // Aspect ratio of our final output canvas
 
-            let sx = 0, sy = 0; // Source X, Y on tempSourceCanvas
-            let sWidth = sourceWidthToUse; // Source Width
-            let sHeight = sourceHeightToUse; // Source Height
+            let sx = 0, sy = 0; // Source X, Y on sourceForCropping canvas
+            let sCropWidth = sourceForCroppingWidth; // Source Width for cropping
+            let sCropHeight = sourceForCroppingHeight; // Source Height for cropping
 
             if (sourceAspectRatio > targetAspectRatio) {
                 // Source is wider than target display aspect ratio, crop horizontally
-                sHeight = sourceHeightToUse;
-                sWidth = sHeight * targetAspectRatio;
-                sx = (sourceWidthToUse - sWidth) / 2;
+                sCropHeight = sourceForCroppingHeight;
+                sCropWidth = sCropHeight * targetAspectRatio;
+                sx = (sourceForCroppingWidth - sCropWidth) / 2;
                 sy = 0;
             } else {
                 // Source is taller than or same aspect ratio as target, crop vertically
-                sWidth = sourceWidthToUse;
-                sHeight = sWidth / targetAspectRatio;
-                sy = (sourceHeightToUse - sHeight) / 2;
+                sCropWidth = sourceForCroppingWidth;
+                sCropHeight = sCropWidth / targetAspectRatio;
+                sy = (sourceForCroppingHeight - sCropHeight) / 2; // Fixed typo here: was `sHeight`
                 sx = 0;
             }
 
-            // --- Finally, draw the cropped and oriented image to the final hiddenCanvas, applying mirroring ---
+            // --- Draw the cropped and oriented image to the final hiddenCanvas, applying mirroring ---
             ctx.save();
             ctx.translate(hiddenCanvas.width, 0); // Move origin to top-right for mirroring
             ctx.scale(-1, 1); // Apply mirroring for selfie view
 
-            // Draw the calculated cropped portion from tempSourceCanvas onto the hiddenCanvas,
+            // Draw the calculated cropped portion from sourceForCropping onto the hiddenCanvas,
             // filling the entire hiddenCanvas area.
-            ctx.drawImage(tempSourceCanvas, sx, sy, sWidth, sHeight, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+            ctx.drawImage(sourceForCropping, sx, sy, sCropWidth, sCropHeight, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
             ctx.restore(); // Restore the context after mirroring transform
 
             // Get the image data as a PNG data URL
