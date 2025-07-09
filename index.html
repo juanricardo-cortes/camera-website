@@ -204,6 +204,7 @@
             border-radius: 1rem;
             pointer-events: none;
             transition: border-color 0.3s ease-in-out;
+            overflow: hidden; /* Crucial to contain the scanning line */
         }
         .red-outline {
             border-color: #ef4444;
@@ -211,6 +212,29 @@
         .green-outline {
             border-color: #22c55e;
         }
+        /* Scanning line effect */
+        .hand-outline-overlay::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%; /* Start off-screen to the left */
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(34, 197, 94, 0.3), transparent); /* Green gradient */
+            opacity: 0;
+            transition: opacity 0.3s ease-in-out;
+        }
+
+        .hand-outline-overlay.scanning::after {
+            opacity: 1;
+            animation: scan-line 2s infinite linear; /* Animate the scan line */
+        }
+
+        @keyframes scan-line {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
         .controls {
             padding: 1.5rem;
             display: flex;
@@ -572,6 +596,12 @@
             } else {
                 handOutlineOverlay.classList.remove('green-outline');
                 handOutlineOverlay.classList.add('red-outline');
+            }
+            // Control scanning animation
+            if (isHandDetected && lightingCondition === 'good') {
+                handOutlineOverlay.classList.add('scanning');
+            } else {
+                handOutlineOverlay.classList.remove('scanning');
             }
         }
 
