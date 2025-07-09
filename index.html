@@ -63,23 +63,70 @@
             padding: 10px; /* Add padding inside the box */
             box-sizing: border-box; /* Include padding in element's total width and height */
         }
-        .upload-box span {
-            margin-top: 10px;
-            display: block; /* Ensure span takes full width */
-            padding: 0 5px; /* Add padding to text */
-            flex-grow: 1; /* Allow text to take available space */
-            display: flex;
+        .upload-box .placeholder-text {
+            display: flex; /* Ensure flex for centering */
             align-items: center;
             justify-content: center;
+            height: 100%; /* Occupy full height when no images */
+            width: 100%;
+            padding: 0 5px;
+            box-sizing: border-box;
         }
-        .upload-box img {
-            max-width: 100%; /* Ensure image fits */
-            max-height: 100%; /* Ensure image fits */
-            object-fit: contain; /* Contain the image within the box */
-            border-radius: 8px;
-            display: none; /* Hidden by default */
-            /* No margin-bottom here, as buttons are outside */
+        .upload-box .photo-gallery {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px; /* Small gap between images */
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%; /* Fill the upload-box */
+            overflow-y: auto; /* Allow scrolling if many photos */
+            padding: 5px; /* Padding inside gallery */
+            box-sizing: border-box;
         }
+        .photo-card {
+            position: relative;
+            width: 70px; /* Thumbnail size */
+            height: 70px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-shrink: 0; /* Prevent cards from shrinking */
+        }
+        .photo-card img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Cover the thumbnail area */
+            border-radius: 4px;
+        }
+        .photo-card .delete-photo-btn {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            background-color: rgba(239, 68, 68, 0.8); /* Red with transparency */
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            line-height: 1;
+            padding: 0;
+            opacity: 0.8;
+            transition: opacity 0.2s;
+            z-index: 10; /* Ensure button is above image */
+        }
+        .photo-card .delete-photo-btn:hover {
+            opacity: 1;
+        }
+
         /* Styles for the buttons now they are outside the box */
         button.capture-trigger-btn,
         button.remove-image-btn {
@@ -378,21 +425,23 @@
         <div class="palm-input-group">
             <div class="upload-box" id="leftPalmBox">
                 <input type="hidden" id="leftPalmInput" name="leftPalmPhoto" />
-                <img id="leftPalmPreview" src="" alt="Left Palm Preview">
-                <span id="leftPalmText">Left Palm Photo *</span>
+                <span id="leftPalmText" class="placeholder-text">Left Palm Photo *</span>
+                <div class="photo-gallery" id="leftPalmGallery">
+                    <!-- Captured images will be appended here -->
+                </div>
             </div>
             <button class="capture-trigger-btn" data-palm="left">Capture Left Palm</button>
-            <button class="remove-image-btn hidden" data-palm="left">Remove Left Palm</button>
         </div>
 
         <div class="palm-input-group">
             <div class="upload-box" id="rightPalmBox">
                 <input type="hidden" id="rightPalmInput" name="rightPalmPhoto" />
-                <img id="rightPalmPreview" src="" alt="Right Palm Preview">
-                <span id="rightPalmText">Right Palm Photo *</span>
+                <span id="rightPalmText" class="placeholder-text">Right Palm Photo *</span>
+                <div class="photo-gallery" id="rightPalmGallery">
+                    <!-- Captured images will be appended here -->
+                </div>
             </div>
             <button class="capture-trigger-btn" data-palm="right">Capture Right Palm</button>
-            <button class="remove-image-btn hidden" data-palm="right">Remove Right Palm</button>
         </div>
     </div>
 
@@ -432,14 +481,13 @@
         const closeModalBtn = document.getElementById('closeModalBtn');
         const modalTitle = document.getElementById('modalTitle');
         const captureTriggerButtons = document.querySelectorAll('.palm-input-group .capture-trigger-btn');
-        const removeImageButtons = document.querySelectorAll('.palm-input-group .remove-image-btn');
 
         const cameraFeed = document.getElementById('cameraFeed');
         const zoomInBtn = document.getElementById('zoomInBtn');
         const zoomOutBtn = document.getElementById('zoomOutBtn');
         const zoomSlider = document.getElementById('zoomSlider');
-        const zoomSliderLabel = document.getElementById('zoomSliderLabel'); // New: Reference to slider label
-        const zoomControlsGroup = document.getElementById('zoomControlsGroup'); // New: Reference to zoom button group
+        const zoomSliderLabel = document.getElementById('zoomSliderLabel');
+        const zoomControlsGroup = document.getElementById('zoomControlsGroup');
 
         const messageBox = document.getElementById('message-box');
         const handOutlineOverlay = document.getElementById('handOutlineOverlay');
@@ -451,15 +499,13 @@
 
         // References for left palm elements
         const leftPalmInput = document.getElementById('leftPalmInput');
-        const leftPalmPreview = document.getElementById('leftPalmPreview');
         const leftPalmText = document.getElementById('leftPalmText');
-        const leftPalmRemoveBtn = document.querySelector('#leftPalmBox + .capture-trigger-btn + .remove-image-btn');
+        const leftPalmGallery = document.getElementById('leftPalmGallery');
 
         // References for right palm elements
         const rightPalmInput = document.getElementById('rightPalmInput');
-        const rightPalmPreview = document.getElementById('rightPalmPreview');
         const rightPalmText = document.getElementById('rightPalmText');
-        const rightPalmRemoveBtn = document.querySelector('#rightPalmBox + .capture-trigger-btn + .remove-image-btn');
+        const rightPalmGallery = document.getElementById('rightPalmGallery');
 
         // --- State Variables ---
         let mediaStream = null;
@@ -478,6 +524,10 @@
         let lastAutoCaptureTime = 0;
         let scanCompletionTimeoutId = null; // New: Timeout ID for simulated scan
         const scanDuration = 1500; // New: Duration of simulated scan before auto-capture (1.5 seconds)
+
+        // Arrays to store captured image data URLs for each palm
+        let leftPalmPhotos = [];
+        let rightPalmPhotos = [];
 
         // Lighting thresholds (adjust as needed for your environment)
         const LOW_BRIGHTNESS_THRESHOLD = 60;
@@ -529,6 +579,7 @@
                     // Ensure zoom controls are visible
                     zoomControlsGroup.classList.remove('hidden-zoom');
                     zoomSliderLabel.classList.remove('hidden-zoom');
+                    zoomSlider.classList.remove('hidden-zoom'); // Hide the slider itself
                     zoomInBtn.disabled = false;
                     zoomOutBtn.disabled = false;
                     zoomSlider.disabled = false;
@@ -540,6 +591,7 @@
                     // Hide zoom controls
                     zoomControlsGroup.classList.add('hidden-zoom');
                     zoomSliderLabel.classList.add('hidden-zoom');
+                    zoomSlider.classList.add('hidden-zoom'); // Hide the slider itself
                     zoomInBtn.disabled = true;
                     zoomOutBtn.disabled = true;
                     zoomSlider.disabled = true;
@@ -571,6 +623,7 @@
                 // Always hide zoom controls if camera init fails
                 zoomControlsGroup.classList.add('hidden-zoom');
                 zoomSliderLabel.classList.add('hidden-zoom');
+                zoomSlider.classList.add('hidden-zoom'); // Hide the slider itself
                 zoomInBtn.disabled = true;
                 zoomOutBtn.disabled = true;
                 zoomSlider.disabled = true;
@@ -951,26 +1004,13 @@
             // Get the image data as a PNG data URL
             const imageDataUrl = hiddenCanvas.toDataURL('image/png');
 
-            let targetInput, targetPreview, targetText, targetRemoveBtn;
-
+            // Add the image to the appropriate palm's photo array
             if (currentPalmTarget === 'left') {
-                targetInput = leftPalmInput;
-                targetPreview = leftPalmPreview;
-                targetText = leftPalmText;
-                targetRemoveBtn = leftPalmRemoveBtn;
+                leftPalmPhotos.push(imageDataUrl);
+                renderPhotos('left');
             } else if (currentPalmTarget === 'right') {
-                targetInput = rightPalmInput;
-                targetPreview = rightPalmPreview;
-                targetText = rightPalmText;
-                targetRemoveBtn = rightPalmRemoveBtn;
-            }
-
-            if (targetInput && targetPreview && targetText && targetRemoveBtn) {
-                targetPreview.src = imageDataUrl;
-                targetPreview.style.display = 'block';
-                targetText.style.display = 'none';
-                targetInput.value = imageDataUrl;
-                targetRemoveBtn.classList.remove('hidden'); // Show remove button
+                rightPalmPhotos.push(imageDataUrl);
+                renderPhotos('right');
             }
 
             updateMessageBox('Image captured successfully!', 'success');
@@ -978,31 +1018,75 @@
         }
 
         /**
-         * Removes a captured image from the display and clears the hidden input.
-         * @param {string} palm - 'left' or 'right' to indicate which palm image to remove.
+         * Renders the photos for a given palm into its gallery.
+         * @param {string} palm - 'left' or 'right'.
          */
-        function removeImage(palm) {
-            let targetInput, targetPreview, targetText, targetRemoveBtn;
+        function renderPhotos(palm) {
+            let galleryElement, photosArray, textElement, inputElement;
 
             if (palm === 'left') {
-                targetInput = leftPalmInput;
-                targetPreview = leftPalmPreview;
-                targetText = leftPalmText;
-                targetRemoveBtn = leftPalmRemoveBtn;
+                galleryElement = leftPalmGallery;
+                photosArray = leftPalmPhotos;
+                textElement = leftPalmText;
+                inputElement = leftPalmInput;
             } else if (palm === 'right') {
-                targetInput = rightPalmInput;
-                targetPreview = rightPalmPreview;
-                targetText = rightPalmText;
-                targetRemoveBtn = rightPalmRemoveBtn;
+                galleryElement = rightPalmGallery;
+                photosArray = rightPalmPhotos;
+                textElement = rightPalmText;
+                inputElement = rightPalmInput;
             }
 
-            if (targetInput && targetPreview && targetText && targetRemoveBtn) {
-                targetInput.value = ''; // Clear the hidden input value
-                targetPreview.src = ''; // Clear the image source
-                targetPreview.style.display = 'none'; // Hide the image
-                targetText.style.display = 'flex'; // Show the text again (flex for centering)
-                targetRemoveBtn.classList.add('hidden'); // Hide the remove button
-                updateMessageBox(`${palm === 'left' ? 'Left' : 'Right'} palm image removed.`, 'info');
+            // Clear existing photos
+            galleryElement.innerHTML = '';
+
+            if (photosArray.length === 0) {
+                textElement.style.display = 'flex'; // Show placeholder text
+            } else {
+                textElement.style.display = 'none'; // Hide placeholder text
+                photosArray.forEach((dataUrl, index) => {
+                    const photoCard = document.createElement('div');
+                    photoCard.classList.add('photo-card');
+                    photoCard.dataset.index = index; // Store index for deletion
+
+                    const img = document.createElement('img');
+                    img.src = dataUrl;
+                    img.alt = `${palm} Palm Photo ${index + 1}`;
+
+                    const deleteBtn = document.createElement('button');
+                    deleteBtn.classList.add('delete-photo-btn');
+                    deleteBtn.textContent = 'x';
+                    deleteBtn.title = 'Remove photo';
+                    deleteBtn.addEventListener('click', (event) => {
+                        event.stopPropagation(); // Prevent click from bubbling up to upload-box
+                        removePhoto(palm, index);
+                    });
+
+                    photoCard.appendChild(img);
+                    photoCard.appendChild(deleteBtn);
+                    galleryElement.appendChild(photoCard);
+                });
+            }
+            // Update the hidden input with the JSON string of all photos
+            inputElement.value = JSON.stringify(photosArray);
+        }
+
+        /**
+         * Removes a specific photo from the gallery and updates the data.
+         * @param {string} palm - 'left' or 'right'.
+         * @param {number} index - The index of the photo to remove.
+         */
+        function removePhoto(palm, index) {
+            let photosArray;
+            if (palm === 'left') {
+                photosArray = leftPalmPhotos;
+            } else if (palm === 'right') {
+                photosArray = rightPalmPhotos;
+            }
+
+            if (index > -1 && index < photosArray.length) {
+                photosArray.splice(index, 1); // Remove photo from array
+                renderPhotos(palm); // Re-render gallery
+                updateMessageBox(`${palm === 'left' ? 'Left' : 'Right'} palm photo removed.`, 'info');
             }
         }
 
@@ -1037,14 +1121,6 @@
             button.addEventListener('click', (event) => {
                 const palm = event.target.dataset.palm;
                 openCameraModal(palm);
-            });
-        });
-
-        // Listen for clicks on the remove image buttons
-        removeImageButtons.forEach(button => {
-            button.addEventListener('click', (event) => {
-                const palm = event.target.dataset.palm;
-                removeImage(palm);
             });
         });
 
@@ -1098,7 +1174,9 @@
         // --- Initial Load ---
         window.onload = async () => {
             await loadHandposeModel(); // Load the ML model once when the page loads
-            // Camera will be initialized when the modal is opened
+            // Initial render of empty galleries
+            renderPhotos('left');
+            renderPhotos('right');
         };
 
         // Cleanup: Stop camera stream if the page is closed (as a fallback, modal close handles it too)
