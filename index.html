@@ -247,6 +247,18 @@
             gap: 0.75rem;
             flex-wrap: wrap;
         }
+        /* New class to control visibility of zoom options */
+        .zoom-controls-group {
+            display: flex; /* Default to flex */
+            justify-content: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        /* Hide zoom controls if not supported */
+        .zoom-controls-group.hidden-zoom {
+            display: none;
+        }
+
         button {
             padding: 0.75rem 1.5rem;
             border-radius: 0.75rem;
@@ -322,6 +334,18 @@
             cursor: pointer;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }
+        /* Style for the zoom slider label */
+        .zoom-slider-label {
+            display: block; /* Ensure it takes its own line */
+            text-align: center;
+            color: #374151;
+            font-weight: 500;
+        }
+        /* Hide the zoom slider label if zoom is not supported */
+        .zoom-slider-label.hidden-zoom {
+            display: none;
+        }
+
         #message-box {
             padding: 0.75rem;
             border-radius: 0.5rem;
@@ -387,13 +411,16 @@
             <div class="controls">
                 <div id="message-box" class="message-info"></div>
                 <div class="button-group">
-                    <button id="zoomOutBtn" class="btn-secondary">Zoom Out</button>
-                    <button id="zoomInBtn" class="btn-primary">Zoom In</button>
                     <button id="captureBtn" class="btn-capture" disabled>Capture Image</button>
                     <button id="toggleCameraBtn" class="btn-secondary">Toggle Camera</button>
                     <button id="toggleAutoCaptureBtn" class="btn-toggle-auto-capture">Toggle Auto Capture</button>
                 </div>
-                <label for="zoomSlider" class="text-center text-gray-700 font-medium">Zoom Level:</label>
+                <!-- Zoom controls group -->
+                <div id="zoomControlsGroup" class="zoom-controls-group">
+                    <button id="zoomOutBtn" class="btn-secondary">Zoom Out</button>
+                    <button id="zoomInBtn" class="btn-primary">Zoom In</button>
+                </div>
+                <label for="zoomSlider" id="zoomSliderLabel" class="zoom-slider-label">Zoom Level:</label>
                 <input type="range" id="zoomSlider" min="0" max="100" value="0" class="w-full" disabled>
             </div>
         </div>
@@ -411,6 +438,9 @@
         const zoomInBtn = document.getElementById('zoomInBtn');
         const zoomOutBtn = document.getElementById('zoomOutBtn');
         const zoomSlider = document.getElementById('zoomSlider');
+        const zoomSliderLabel = document.getElementById('zoomSliderLabel'); // New: Reference to slider label
+        const zoomControlsGroup = document.getElementById('zoomControlsGroup'); // New: Reference to zoom button group
+
         const messageBox = document.getElementById('message-box');
         const handOutlineOverlay = document.getElementById('handOutlineOverlay');
         const hiddenCanvas = document.getElementById('hiddenCanvas');
@@ -496,6 +526,9 @@
                     zoomSlider.step = zoomCapabilities.step;
                     currentZoom = zoomCapabilities.min;
                     zoomSlider.value = currentZoom;
+                    // Ensure zoom controls are visible
+                    zoomControlsGroup.classList.remove('hidden-zoom');
+                    zoomSliderLabel.classList.remove('hidden-zoom');
                     zoomInBtn.disabled = false;
                     zoomOutBtn.disabled = false;
                     zoomSlider.disabled = false;
@@ -504,6 +537,9 @@
                     console.log('Zoom capabilities:', zoomCapabilities);
                 } else {
                     updateMessageBox('Zoom is not supported by your camera or browser.', 'warning');
+                    // Hide zoom controls
+                    zoomControlsGroup.classList.add('hidden-zoom');
+                    zoomSliderLabel.classList.add('hidden-zoom');
                     zoomInBtn.disabled = true;
                     zoomOutBtn.disabled = true;
                     zoomSlider.disabled = true;
@@ -516,7 +552,8 @@
                     startDetectionLoop();
                 };
 
-            } catch (error) {
+            }
+            catch (error) {
                 console.error('Error accessing camera:', error);
                 if (error.name === 'NotAllowedError') {
                     updateMessageBox('Camera access denied. Please allow camera access in your browser settings.', 'error');
@@ -531,6 +568,9 @@
                 else {
                     updateMessageBox(`Error: ${error.message}. Could not access camera.`, 'error');
                 }
+                // Always hide zoom controls if camera init fails
+                zoomControlsGroup.classList.add('hidden-zoom');
+                zoomSliderLabel.classList.add('hidden-zoom');
                 zoomInBtn.disabled = true;
                 zoomOutBtn.disabled = true;
                 zoomSlider.disabled = true;
