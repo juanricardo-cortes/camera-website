@@ -261,6 +261,16 @@
         .btn-capture:hover {
             background-color: #059669;
         }
+        .btn-toggle-auto-capture {
+            background-color: #6366f1; /* Indigo for toggle */
+            color: white;
+        }
+        .btn-toggle-auto-capture.active {
+            background-color: #10b981; /* Green when active */
+        }
+        .btn-toggle-auto-capture:hover {
+            background-color: #4f46e5;
+        }
         input[type="range"] {
             width: 100%;
             -webkit-appearance: none;
@@ -357,6 +367,7 @@
                     <button id="zoomInBtn" class="btn-primary">Zoom In</button>
                     <button id="captureBtn" class="btn-capture" disabled>Capture Image</button>
                     <button id="toggleCameraBtn" class="btn-secondary">Toggle Camera</button>
+                    <button id="toggleAutoCaptureBtn" class="btn-toggle-auto-capture">Toggle Auto Capture</button>
                 </div>
                 <label for="zoomSlider" class="text-center text-gray-700 font-medium">Zoom Level:</label>
                 <input type="range" id="zoomSlider" min="0" max="100" value="0" class="w-full" disabled>
@@ -369,7 +380,6 @@
         const cameraModal = document.getElementById('cameraModal');
         const closeModalBtn = document.getElementById('closeModalBtn');
         const modalTitle = document.getElementById('modalTitle');
-        // Select buttons by class, now they are direct children of palm-input-group
         const captureTriggerButtons = document.querySelectorAll('.palm-input-group .capture-trigger-btn');
         const removeImageButtons = document.querySelectorAll('.palm-input-group .remove-image-btn');
 
@@ -383,18 +393,19 @@
         const ctx = hiddenCanvas.getContext('2d');
         const captureBtn = document.getElementById('captureBtn');
         const toggleCameraBtn = document.getElementById('toggleCameraBtn');
+        const toggleAutoCaptureBtn = document.getElementById('toggleAutoCaptureBtn'); // New: Auto Capture Toggle
 
         // References for left palm elements
         const leftPalmInput = document.getElementById('leftPalmInput');
         const leftPalmPreview = document.getElementById('leftPalmPreview');
         const leftPalmText = document.getElementById('leftPalmText');
-        const leftPalmRemoveBtn = document.querySelector('#leftPalmBox + .capture-trigger-btn + .remove-image-btn'); // Select by sibling
+        const leftPalmRemoveBtn = document.querySelector('#leftPalmBox + .capture-trigger-btn + .remove-image-btn');
 
         // References for right palm elements
         const rightPalmInput = document.getElementById('rightPalmInput');
         const rightPalmPreview = document.getElementById('rightPalmPreview');
         const rightPalmText = document.getElementById('rightPalmText');
-        const rightPalmRemoveBtn = document.querySelector('#rightPalmBox + .capture-trigger-btn + .remove-image-btn'); // Select by sibling
+        const rightPalmRemoveBtn = document.querySelector('#rightPalmBox + .capture-trigger-btn + .remove-image-btn');
 
         // --- State Variables ---
         let mediaStream = null;
@@ -402,15 +413,20 @@
         let zoomCapabilities = null;
         let currentZoom = 0;
         let isHandDetected = false;
-        let lightingCondition = 'unknown';
+        let lightingCondition = 'unknown'; // 'good', 'low', 'high', 'poor_contrast'
         let handposeModel = null;
         let currentPalmTarget = null;
         let animationFrameId = null;
         let currentFacingMode = 'user'; // 'user' for front camera, 'environment' for back camera
 
+        let isAutoCaptureActive = false; // New: Auto-capture state
+        const autoCaptureCooldown = 3000; // 3 seconds cooldown between auto-captures
+        let lastAutoCaptureTime = 0;
+
         // Lighting thresholds (adjust as needed for your environment)
         const LOW_BRIGHTNESS_THRESHOLD = 60;
         const HIGH_BRIGHTNESS_THRESHOLD = 180;
+        const MIN_CONTRAST_THRESHOLD = 30; // Minimum standard deviation of luminance for good contrast
 
         // --- Utility Functions ---
 
@@ -560,26 +576,39 @@
         }
 
         /**
-         * Analyzes the lighting condition from the provided ImageData.
+         * Analyzes the lighting condition from the provided ImageData, including contrast.
          * @param {ImageData} imageData - The image data from the canvas.
-         * @returns {string} 'good', 'low', or 'high'.
+         * @returns {string} 'good', 'low', 'high', or 'poor_contrast'.
          */
         function analyzeLighting(imageData) {
             const data = imageData.data;
-            let totalBrightness = 0;
+            let totalLuminance = 0;
+            let luminances = [];
             const pixelCount = data.length / 4;
 
             if (pixelCount === 0) return 'unknown';
 
             for (let i = 0; i < data.length; i += 4) {
-                totalBrightness += (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+                // Calculate luminance (perceived brightness)
+                const luminance = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+                totalLuminance += luminance;
+                luminances.push(luminance);
             }
-            const averageBrightness = totalBrightness / pixelCount;
+            const averageLuminance = totalLuminance / pixelCount;
 
-            if (averageBrightness < LOW_BRIGHTNESS_THRESHOLD) {
+            // Calculate standard deviation of luminance for contrast
+            let variance = 0;
+            for (let i = 0; i < luminances.length; i++) {
+                variance += Math.pow(luminances[i] - averageLuminance, 2);
+            }
+            const luminanceStdDev = Math.sqrt(variance / luminances.length);
+
+            if (averageLuminance < LOW_BRIGHTNESS_THRESHOLD) {
                 return 'low';
-            } else if (averageBrightness > HIGH_BRIGHTNESS_THRESHOLD) {
+            } else if (averageLuminance > HIGH_BRIGHTNESS_THRESHOLD) {
                 return 'high';
+            } else if (luminanceStdDev < MIN_CONTRAST_THRESHOLD) {
+                return 'poor_contrast'; // New state for low contrast
             } else {
                 return 'good';
             }
@@ -600,6 +629,10 @@
                     break;
                 case 'high':
                     lightingStatusText = 'Lighting is too bright. Avoid glare.';
+                    messageType = 'warning';
+                    break;
+                case 'poor_contrast':
+                    lightingStatusText = 'Poor contrast. Adjust lighting to see details (e.g., lines).';
                     messageType = 'warning';
                     break;
                 case 'good':
@@ -667,8 +700,37 @@
             updateCombinedStatusMessage();
             checkCaptureButtonState(); // Check button state in every frame
 
+            // --- Auto-capture logic ---
+            if (isAutoCaptureActive && isHandDetected && lightingCondition === 'good') {
+                const now = Date.now();
+                if (now - lastAutoCaptureTime > autoCaptureCooldown) {
+                    captureImage();
+                    lastAutoCaptureTime = now;
+                }
+            }
+
             animationFrameId = requestAnimationFrame(startDetectionLoop);
         }
+
+        /**
+         * Applies a simple contrast/sharpening filter to the canvas context.
+         * This is a basic post-processing step to make lines "pop".
+         * @param {CanvasRenderingContext2D} context - The 2D context of the canvas.
+         * @param {number} amount - The intensity of the filter (e.g., 1.2 for 20% increase).
+         */
+        function applyContrastFilter(context, amount) {
+            const imageData = context.getImageData(0, 0, context.canvas.width, context.canvas.height);
+            const pixels = imageData.data;
+            const factor = (259 * (amount + 255)) / (255 * (259 - amount));
+
+            for (let i = 0; i < pixels.length; i += 4) {
+                pixels[i] = factor * (pixels[i] - 128) + 128;     // Red
+                pixels[i + 1] = factor * (pixels[i + 1] - 128) + 128; // Green
+                pixels[i + 2] = factor * (pixels[i + 2] - 128) + 128; // Blue
+            }
+            context.putImageData(imageData, 0, 0);
+        }
+
 
         /**
          * Captures the current frame from the camera feed and displays it in the target palm box.
@@ -678,7 +740,9 @@
                 updateMessageBox('Camera not active. Cannot capture image.', 'error');
                 return;
             }
-            if (captureBtn.disabled) {
+            // If auto-capture is active, we bypass the manual button's disabled state.
+            // If manual capture, ensure button is enabled.
+            if (!isAutoCaptureActive && captureBtn.disabled) {
                 updateMessageBox('Cannot capture: Hand not detected or lighting is poor.', 'warning');
                 return;
             }
@@ -758,7 +822,7 @@
                 // Source is taller than or same aspect ratio as target, crop vertically
                 sCropWidth = sourceForCroppingWidth;
                 sCropHeight = sCropWidth / targetAspectRatio;
-                sy = (sourceForCroppingHeight - sCropHeight) / 2; // Fixed typo here: was `sHeight`
+                sy = (sourceForCroppingHeight - sCropHeight) / 2;
                 sx = 0;
             }
 
@@ -774,6 +838,10 @@
             // filling the entire hiddenCanvas area.
             ctx.drawImage(sourceForCropping, sx, sy, sCropWidth, sCropHeight, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
             ctx.restore(); // Restore the context after mirroring transform
+
+            // --- Apply post-capture visual enhancement (contrast/sharpening) ---
+            // This is where lines and fingerprints will "light up" in the captured image.
+            applyContrastFilter(ctx, 50); // Apply a contrast filter (adjust 50 for intensity)
 
             // Get the image data as a PNG data URL
             const imageDataUrl = hiddenCanvas.toDataURL('image/png');
@@ -904,6 +972,21 @@
         toggleCameraBtn.addEventListener('click', () => {
             currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
             initCamera(); // Re-initialize camera with the new facing mode
+        });
+
+        // New: Toggle Auto Capture button functionality
+        toggleAutoCaptureBtn.addEventListener('click', () => {
+            isAutoCaptureActive = !isAutoCaptureActive;
+            if (isAutoCaptureActive) {
+                toggleAutoCaptureBtn.classList.add('active');
+                toggleAutoCaptureBtn.textContent = 'Auto Capture: ON';
+                lastAutoCaptureTime = 0; // Reset cooldown on activation
+                updateMessageBox('Auto capture is ON. Position hand for capture.', 'info');
+            } else {
+                toggleAutoCaptureBtn.classList.remove('active');
+                toggleAutoCaptureBtn.textContent = 'Auto Capture: OFF';
+                updateMessageBox('Auto capture is OFF. Use manual capture button.', 'info');
+            }
         });
 
 
