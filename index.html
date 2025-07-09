@@ -417,7 +417,7 @@
         const ctx = hiddenCanvas.getContext('2d');
         const captureBtn = document.getElementById('captureBtn');
         const toggleCameraBtn = document.getElementById('toggleCameraBtn');
-        const toggleAutoCaptureBtn = document.getElementById('toggleAutoCaptureBtn'); // New: Auto Capture Toggle
+        const toggleAutoCaptureBtn = document.getElementById('toggleAutoCaptureBtn');
 
         // References for left palm elements
         const leftPalmInput = document.getElementById('leftPalmInput');
@@ -443,9 +443,11 @@
         let animationFrameId = null;
         let currentFacingMode = 'user'; // 'user' for front camera, 'environment' for back camera
 
-        let isAutoCaptureActive = false; // New: Auto-capture state
+        let isAutoCaptureActive = false;
         const autoCaptureCooldown = 3000; // 3 seconds cooldown between auto-captures
         let lastAutoCaptureTime = 0;
+        let scanCompletionTimeoutId = null; // New: Timeout ID for simulated scan
+        const scanDuration = 1500; // New: Duration of simulated scan before auto-capture (1.5 seconds)
 
         // Lighting thresholds (adjust as needed for your environment)
         const LOW_BRIGHTNESS_THRESHOLD = 60;
@@ -549,6 +551,11 @@
             if (animationFrameId) {
                 cancelAnimationFrame(animationFrameId);
                 animationFrameId = null;
+            }
+            // Clear any pending auto-capture timeout
+            if (scanCompletionTimeoutId) {
+                clearTimeout(scanCompletionTimeoutId);
+                scanCompletionTimeoutId = null;
             }
         }
 
@@ -730,14 +737,42 @@
             updateCombinedStatusMessage();
             checkCaptureButtonState(); // Check button state in every frame
 
-            // --- Auto-capture logic ---
-            if (isAutoCaptureActive && isHandDetected && lightingCondition === 'good') {
+            // --- Auto-capture logic with simulated scan delay ---
+            if (isAutoCaptureActive) {
                 const now = Date.now();
-                if (now - lastAutoCaptureTime > autoCaptureCooldown) {
-                    captureImage();
-                    lastAutoCaptureTime = now;
+                const canCaptureNow = (now - lastAutoCaptureTime > autoCaptureCooldown);
+
+                if (isHandDetected && lightingCondition === 'good') {
+                    if (!scanCompletionTimeoutId && canCaptureNow) {
+                        // Start simulated scan if not already scanning and cooldown allows
+                        updateMessageBox('Scanning... Hold hand steady.', 'info');
+                        scanCompletionTimeoutId = setTimeout(() => {
+                            // After scanDuration, check conditions again before capturing
+                            if (isHandDetected && lightingCondition === 'good') {
+                                captureImage();
+                                lastAutoCaptureTime = Date.now(); // Update last capture time
+                            } else {
+                                updateMessageBox('Scan interrupted. Conditions changed.', 'warning');
+                            }
+                            scanCompletionTimeoutId = null; // Reset timeout ID
+                        }, scanDuration);
+                    }
+                } else {
+                    // Conditions not met, cancel any pending scan
+                    if (scanCompletionTimeoutId) {
+                        clearTimeout(scanCompletionTimeoutId);
+                        scanCompletionTimeoutId = null;
+                        updateMessageBox('Scan cancelled. Adjust hand or lighting.', 'warning');
+                    }
+                }
+            } else {
+                // Auto-capture is off, ensure any pending scan is cleared
+                if (scanCompletionTimeoutId) {
+                    clearTimeout(scanCompletionTimeoutId);
+                    scanCompletionTimeoutId = null;
                 }
             }
+
 
             animationFrameId = requestAnimationFrame(startDetectionLoop);
         }
