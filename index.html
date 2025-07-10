@@ -237,7 +237,7 @@
             display: block;
             /* transform: scaleX(-1); This will be set dynamically by JS */
         }
-        #hiddenCanvas {
+        #hiddenCanvas, #motionDetectionCanvas {
             display: none;
         }
         .hand-outline-overlay {
@@ -424,6 +424,7 @@
     <div class="palm-upload-container">
         <div class="palm-input-group">
             <div class="upload-box" id="leftPalmBox">
+                <!-- This input will now hold a JSON string of Data URLs -->
                 <input type="hidden" id="leftPalmInput" name="leftPalmPhoto" />
                 <span id="leftPalmText" class="placeholder-text">Left Palm Photo *</span>
                 <div class="photo-gallery" id="leftPalmGallery">
@@ -431,10 +432,12 @@
                 </div>
             </div>
             <button class="capture-trigger-btn" data-palm="left">Capture Left Palm</button>
+            <button class="remove-image-btn hidden" data-palm="left">Remove Left Palm</button>
         </div>
 
         <div class="palm-input-group">
             <div class="upload-box" id="rightPalmBox">
+                <!-- This input will now hold a JSON string of Data URLs -->
                 <input type="hidden" id="rightPalmInput" name="rightPalmPhoto" />
                 <span id="rightPalmText" class="placeholder-text">Right Palm Photo *</span>
                 <div class="photo-gallery" id="rightPalmGallery">
@@ -442,6 +445,7 @@
                 </div>
             </div>
             <button class="capture-trigger-btn" data-palm="right">Capture Right Palm</button>
+            <button class="remove-image-btn hidden" data-palm="right">Remove Right Palm</button>
         </div>
     </div>
 
@@ -455,6 +459,7 @@
             <div class="camera-area">
                 <video id="cameraFeed" autoplay playsinline></video>
                 <canvas id="hiddenCanvas"></canvas>
+                <canvas id="motionDetectionCanvas"></canvas> <!-- New: Canvas for motion detection -->
                 <div id="handOutlineOverlay" class="hand-outline-overlay red-outline"></div>
             </div>
             <div class="controls">
@@ -481,6 +486,7 @@
         const closeModalBtn = document.getElementById('closeModalBtn');
         const modalTitle = document.getElementById('modalTitle');
         const captureTriggerButtons = document.querySelectorAll('.palm-input-group .capture-trigger-btn');
+        const removeImageButtons = document.querySelectorAll('.palm-input-group .remove-image-btn'); // New: Added reference to remove buttons
 
         const cameraFeed = document.getElementById('cameraFeed');
         const zoomInBtn = document.getElementById('zoomInBtn');
@@ -493,6 +499,8 @@
         const handOutlineOverlay = document.getElementById('handOutlineOverlay');
         const hiddenCanvas = document.getElementById('hiddenCanvas');
         const ctx = hiddenCanvas.getContext('2d');
+        const motionDetectionCanvas = document.getElementById('motionDetectionCanvas');
+        const motionDetectionCtx = motionDetectionCanvas.getContext('2d');
         const captureBtn = document.getElementById('captureBtn');
         const toggleCameraBtn = document.getElementById('toggleCameraBtn');
         const toggleAutoCaptureBtn = document.getElementById('toggleAutoCaptureBtn');
@@ -514,6 +522,7 @@
         let currentZoom = 0;
         let isHandDetected = false;
         let lightingCondition = 'unknown'; // 'good', 'low', 'high', 'poor_contrast'
+        let isHandSteady = true;
         let handposeModel = null;
         let currentPalmTarget = null;
         let animationFrameId = null;
@@ -522,17 +531,23 @@
         let isAutoCaptureActive = false;
         const autoCaptureCooldown = 3000; // 3 seconds cooldown between auto-captures
         let lastAutoCaptureTime = 0;
-        let scanCompletionTimeoutId = null; // New: Timeout ID for simulated scan
-        const scanDuration = 1500; // New: Duration of simulated scan before auto-capture (1.5 seconds)
+        let scanCompletionTimeoutId = null;
+        const scanDuration = 1500; // 1.5 seconds
 
-        // Arrays to store captured image data URLs for each palm
+        // Motion detection variables
+        let lastFrameData = null;
+        // Increased threshold for less sensitivity, adjust as needed.
+        // This value might need further fine-tuning based on device, lighting, and expected motion.
+        const MOTION_THRESHOLD = 50000; // Significantly increased threshold
+
+        // Arrays to store captured image Data URLs for each palm (will be uploaded by footer script)
         let leftPalmPhotos = [];
         let rightPalmPhotos = [];
 
         // Lighting thresholds (adjust as needed for your environment)
         const LOW_BRIGHTNESS_THRESHOLD = 60;
         const HIGH_BRIGHTNESS_THRESHOLD = 180;
-        const MIN_CONTRAST_THRESHOLD = 30; // Minimum standard deviation of luminance for good contrast
+        const MIN_CONTRAST_THRESHOLD = 30;
 
         // --- Utility Functions ---
 
@@ -555,7 +570,6 @@
                 // Stop any existing camera stream first
                 stopCamera();
 
-                // Set video constraints based on current facing mode
                 const videoConstraints = {
                     facingMode: currentFacingMode
                 };
@@ -563,7 +577,6 @@
                 mediaStream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
                 cameraFeed.srcObject = mediaStream;
 
-                // Apply mirroring for front camera, remove for back camera
                 cameraFeed.style.transform = (currentFacingMode === 'user') ? 'scaleX(-1)' : 'none';
 
                 videoTrack = mediaStream.getVideoTracks()[0];
@@ -579,7 +592,7 @@
                     // Ensure zoom controls are visible
                     zoomControlsGroup.classList.remove('hidden-zoom');
                     zoomSliderLabel.classList.remove('hidden-zoom');
-                    zoomSlider.classList.remove('hidden-zoom'); // Make sure the slider itself is visible
+                    zoomSlider.classList.remove('hidden-zoom');
                     zoomInBtn.disabled = false;
                     zoomOutBtn.disabled = false;
                     zoomSlider.disabled = false;
@@ -591,7 +604,7 @@
                     // Hide zoom controls
                     zoomControlsGroup.classList.add('hidden-zoom');
                     zoomSliderLabel.classList.add('hidden-zoom');
-                    zoomSlider.classList.add('hidden-zoom'); // Hide the slider itself
+                    zoomSlider.classList.add('hidden-zoom');
                     zoomInBtn.disabled = true;
                     zoomOutBtn.disabled = true;
                     zoomSlider.disabled = true;
@@ -601,6 +614,8 @@
                 checkCaptureButtonState();
 
                 cameraFeed.onloadedmetadata = () => {
+                    motionDetectionCanvas.width = cameraFeed.videoWidth;
+                    motionDetectionCanvas.height = cameraFeed.videoHeight;
                     startDetectionLoop();
                 };
 
@@ -613,9 +628,8 @@
                     updateMessageBox('No camera found on your device.', 'error');
                 } else if (error.name === 'OverconstrainedError') {
                     updateMessageBox('Requested camera not available. Trying default camera.', 'warning');
-                    // Fallback to default if specific facingMode fails
-                    currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user'; // Try the other one
-                    initCamera(); // Recursively call with fallback
+                    currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
+                    initCamera();
                 }
                 else {
                     updateMessageBox(`Error: ${error.message}. Could not access camera.`, 'error');
@@ -623,7 +637,7 @@
                 // Always hide zoom controls if camera init fails
                 zoomControlsGroup.classList.add('hidden-zoom');
                 zoomSliderLabel.classList.add('hidden-zoom');
-                zoomSlider.classList.add('hidden-zoom'); // Hide the slider itself
+                zoomSlider.classList.add('hidden-zoom');
                 zoomInBtn.disabled = true;
                 zoomOutBtn.disabled = true;
                 zoomSlider.disabled = true;
@@ -645,11 +659,12 @@
                 cancelAnimationFrame(animationFrameId);
                 animationFrameId = null;
             }
-            // Clear any pending auto-capture timeout
             if (scanCompletionTimeoutId) {
                 clearTimeout(scanCompletionTimeoutId);
                 scanCompletionTimeoutId = null;
             }
+            lastFrameData = null;
+            isHandSteady = true;
         }
 
         /**
@@ -682,8 +697,7 @@
          * Updates the zoom slider and potentially a text display (if added).
          */
         function updateZoomDisplay() {
-            // This function is currently a placeholder.
-            // You could add a text element here to show the current zoom value if desired.
+            // Placeholder
         }
 
         /**
@@ -697,8 +711,7 @@
                 handOutlineOverlay.classList.remove('green-outline');
                 handOutlineOverlay.classList.add('red-outline');
             }
-            // Control scanning animation
-            if (isHandDetected && lightingCondition === 'good') {
+            if (isHandDetected && lightingCondition === 'good' && isHandSteady) {
                 handOutlineOverlay.classList.add('scanning');
             } else {
                 handOutlineOverlay.classList.remove('scanning');
@@ -719,14 +732,12 @@
             if (pixelCount === 0) return 'unknown';
 
             for (let i = 0; i < data.length; i += 4) {
-                // Calculate luminance (perceived brightness)
                 const luminance = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
                 totalLuminance += luminance;
                 luminances.push(luminance);
             }
             const averageLuminance = totalLuminance / pixelCount;
 
-            // Calculate standard deviation of luminance for contrast
             let variance = 0;
             for (let i = 0; i < luminances.length; i++) {
                 variance += Math.pow(luminances[i] - averageLuminance, 2);
@@ -738,11 +749,52 @@
             } else if (averageLuminance > HIGH_BRIGHTNESS_THRESHOLD) {
                 return 'high';
             } else if (luminanceStdDev < MIN_CONTRAST_THRESHOLD) {
-                return 'poor_contrast'; // New state for low contrast
+                return 'poor_contrast';
             } else {
                 return 'good';
             }
         }
+
+        /**
+         * Detects motion by comparing current frame pixels to the last frame.
+         * It focuses on the central area of the frame to reduce background noise.
+         * @param {HTMLVideoElement} video - The video element.
+         * @returns {boolean} True if motion is detected, false otherwise.
+         */
+        function detectMotion(video) {
+            if (!video.videoWidth || !video.videoHeight) return false;
+
+            // Use a smaller central region for motion detection
+            const regionWidth = video.videoWidth * 0.8; // 80% of video width
+            const regionHeight = video.videoHeight * 0.8; // 80% of video height
+            const regionX = (video.videoWidth - regionWidth) / 2;
+            const regionY = (video.videoHeight - regionHeight) / 2;
+
+            motionDetectionCanvas.width = regionWidth;
+            motionDetectionCanvas.height = regionHeight;
+            // Draw only the central region to the motion detection canvas
+            motionDetectionCtx.drawImage(video, regionX, regionY, regionWidth, regionHeight, 0, 0, regionWidth, regionHeight);
+            const currentFrameData = motionDetectionCtx.getImageData(0, 0, regionWidth, regionHeight).data;
+
+            if (!lastFrameData || lastFrameData.length !== currentFrameData.length) {
+                lastFrameData = currentFrameData;
+                return false; // No previous frame or dimensions changed
+            }
+
+            let difference = 0;
+            // Compare a subset of pixels for performance, e.g., every 10th pixel
+            for (let i = 0; i < currentFrameData.length; i += 40) { // Check every 10th pixel (4 bytes * 10)
+                difference += Math.abs(currentFrameData[i] - lastFrameData[i]);
+                difference += Math.abs(currentFrameData[i+1] - lastFrameData[i+1]);
+                difference += Math.abs(currentFrameData[i+2] - lastFrameData[i+2]);
+            }
+            console.log("Motion difference (central region):", difference); // Log motion difference
+            lastFrameData = currentFrameData;
+
+            // Increased threshold for less sensitivity. This value might need further fine-tuning.
+            return difference > MOTION_THRESHOLD;
+        }
+
 
         /**
          * Updates the combined status message in the message box.
@@ -774,15 +826,20 @@
                     messageType = 'info';
             }
 
-            const fullMessage = `${handStatus} ${lightingStatusText}`;
+            let motionStatusText = isHandSteady ? '' : 'Hold hand steady.';
+            if (!isHandSteady) {
+                messageType = 'warning';
+            }
+
+            const fullMessage = `${handStatus} ${lightingStatusText} ${motionStatusText}`.trim();
             updateMessageBox(fullMessage, messageType);
         }
 
         /**
-         * Enables or disables the capture button based on hand detection and lighting.
+         * Enables or disables the capture button based on hand detection, lighting, and stability.
          */
         function checkCaptureButtonState() {
-            if (isHandDetected && lightingCondition === 'good') {
+            if (isHandDetected && lightingCondition === 'good' && isHandSteady) {
                 captureBtn.disabled = false;
             } else {
                 captureBtn.disabled = true;
@@ -808,73 +865,63 @@
          */
         async function startDetectionLoop() {
             if (!handposeModel || !cameraFeed.videoWidth || !cameraFeed.videoHeight || !mediaStream) {
-                animationFrameId = requestAnimationFrame(startDetectionLoop); // Keep trying until camera is ready
+                animationFrameId = requestAnimationFrame(startDetectionLoop);
                 return;
             }
 
-            // Draw the video frame onto the hidden canvas
+            isHandSteady = !detectMotion(cameraFeed);
+
             ctx.drawImage(cameraFeed, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
-            // Get image data for lighting analysis
             const imageData = ctx.getImageData(0, 0, hiddenCanvas.width, hiddenCanvas.height);
             lightingCondition = analyzeLighting(imageData);
 
-            // Perform hand detection
             const predictions = await handposeModel.estimateHands(hiddenCanvas);
 
-            // Determine if a hand is detected
             isHandDetected = predictions.length > 0;
 
-            // Update UI based on detection and lighting
             updateHandOutline();
             updateCombinedStatusMessage();
-            checkCaptureButtonState(); // Check button state in every frame
+            checkCaptureButtonState();
 
-            // --- Auto-capture logic with simulated scan delay ---
             if (isAutoCaptureActive) {
                 const now = Date.now();
                 const canCaptureNow = (now - lastAutoCaptureTime > autoCaptureCooldown);
 
-                if (isHandDetected && lightingCondition === 'good') {
+                if (isHandDetected && lightingCondition === 'good' && isHandSteady) {
                     if (!scanCompletionTimeoutId && canCaptureNow) {
-                        // Start simulated scan if not already scanning and cooldown allows
                         updateMessageBox('Scanning... Hold hand steady.', 'info');
                         scanCompletionTimeoutId = setTimeout(() => {
-                            // After scanDuration, check conditions again before capturing
-                            if (isHandDetected && lightingCondition === 'good') {
-                                captureImage();
-                                lastAutoCaptureTime = Date.now(); // Update last capture time
+                            if (isHandDetected && lightingCondition === 'good' && isHandSteady) {
+                                captureImage(); // Now this just captures to Data URL
+                                lastAutoCaptureTime = Date.now();
                             } else {
-                                updateMessageBox('Scan interrupted. Conditions changed.', 'warning');
+                                updateMessageBox('Scan interrupted. Conditions changed or hand moved.', 'warning');
                             }
-                            scanCompletionTimeoutId = null; // Reset timeout ID
+                            scanCompletionTimeoutId = null;
                         }, scanDuration);
                     }
                 } else {
-                    // Conditions not met, cancel any pending scan
                     if (scanCompletionTimeoutId) {
                         clearTimeout(scanCompletionTimeoutId);
                         scanCompletionTimeoutId = null;
-                        updateMessageBox('Scan cancelled. Adjust hand or lighting.', 'warning');
+                        updateMessageBox('Scan cancelled. Adjust hand, lighting, or hold steady.', 'warning');
                     }
                 }
             } else {
-                // Auto-capture is off, ensure any pending scan is cleared
                 if (scanCompletionTimeoutId) {
                     clearTimeout(scanCompletionTimeoutId);
                     scanCompletionTimeoutId = null;
                 }
             }
 
-
             animationFrameId = requestAnimationFrame(startDetectionLoop);
         }
 
         /**
          * Applies a simple contrast/sharpening filter to the canvas context.
-         * This is a basic post-processing step to make lines "pop".
          * @param {CanvasRenderingContext2D} context - The 2D context of the canvas.
-         * @param {number} amount - The intensity of the filter (e.g., 1.2 for 20% increase).
+         * @param {number} amount - The intensity of the filter.
          */
         function applyContrastFilter(context, amount) {
             const imageData = context.getImageData(0, 0, context.canvas.width, context.canvas.height);
@@ -882,139 +929,116 @@
             const factor = (259 * (amount + 255)) / (255 * (259 - amount));
 
             for (let i = 0; i < pixels.length; i += 4) {
-                pixels[i] = factor * (pixels[i] - 128) + 128;     // Red
-                pixels[i + 1] = factor * (pixels[i + 1] - 128) + 128; // Green
-                pixels[i + 2] = factor * (pixels[i + 2] - 128) + 128; // Blue
+                pixels[i] = factor * (pixels[i] - 128) + 128;
+                pixels[i + 1] = factor * (pixels[i + 1] - 128) + 128;
+                pixels[i + 2] = factor * (pixels[i + 2] - 128) + 128;
             }
             context.putImageData(imageData, 0, 0);
         }
 
 
         /**
-         * Captures the current frame from the camera feed and displays it in the target palm box.
+         * Captures the current frame from the camera feed, processes it,
+         * and stores the Data URL locally. Upload to Cloudinary happens on form submission.
          */
         function captureImage() {
             if (!cameraFeed.srcObject) {
                 updateMessageBox('Camera not active. Cannot capture image.', 'error');
                 return;
             }
-            // If auto-capture is active, we bypass the manual button's disabled state.
-            // If manual capture, ensure button is enabled.
             if (!isAutoCaptureActive && captureBtn.disabled) {
-                updateMessageBox('Cannot capture: Hand not detected or lighting is poor.', 'warning');
+                updateMessageBox('Cannot capture: Hand not detected, lighting is poor, or hand is moving.', 'warning');
                 return;
             }
 
-            // Get intrinsic video dimensions (native resolution from camera sensor)
-            const videoNativeWidth = cameraFeed.videoWidth;
-            const videoNativeHeight = cameraFeed.videoHeight;
+            updateMessageBox('Capturing image...', 'info');
+            captureBtn.disabled = true;
 
-            // Get the displayed dimensions of the video element (what the user visually sees)
-            const displayWidth = cameraFeed.offsetWidth;
-            const displayHeight = cameraFeed.offsetHeight;
+            try {
+                const videoNativeWidth = cameraFeed.videoWidth;
+                const videoNativeHeight = cameraFeed.videoHeight;
+                const displayWidth = cameraFeed.offsetWidth;
+                const displayHeight = cameraFeed.offsetHeight;
 
-            // Set hidden canvas dimensions to match the *displayed* video element's dimensions.
-            // This is the target size and aspect ratio for the final captured image.
-            hiddenCanvas.width = displayWidth;
-            hiddenCanvas.height = displayHeight;
+                hiddenCanvas.width = displayWidth;
+                hiddenCanvas.height = displayHeight;
+                ctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
-            // Clear the canvas before drawing
-            ctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+                const tempRawCanvas = document.createElement('canvas');
+                const tempRawCtx = tempRawCanvas.getContext('2d');
+                tempRawCanvas.width = videoNativeWidth;
+                tempRawCanvas.height = videoNativeHeight;
+                tempRawCtx.drawImage(cameraFeed, 0, 0, videoNativeWidth, videoNativeHeight);
 
-            // Create a temporary canvas to draw the raw video frame.
-            const tempRawCanvas = document.createElement('canvas');
-            const tempRawCtx = tempRawCanvas.getContext('2d');
-            tempRawCanvas.width = videoNativeWidth;
-            tempRawCanvas.height = videoNativeHeight;
-            tempRawCtx.drawImage(cameraFeed, 0, 0, videoNativeWidth, videoNativeHeight);
+                const isRawVideoPortrait = videoNativeHeight > videoNativeWidth;
+                const isDisplayLandscape = displayWidth > displayHeight;
 
-            // Determine if the *source* image (from tempRawCanvas) needs to be rotated
-            // to match the *display's* orientation before cropping.
-            // This is the crucial part for mobile phones that report portrait native video but display landscape.
-            const isRawVideoPortrait = videoNativeHeight > videoNativeWidth;
-            const isDisplayLandscape = displayWidth > displayHeight;
+                let sourceForCropping = tempRawCanvas;
+                let sourceForCroppingWidth = videoNativeWidth;
+                let sourceForCroppingHeight = videoNativeHeight;
 
-            let sourceForCropping = tempRawCanvas; // Default source for cropping
-            let sourceForCroppingWidth = videoNativeWidth;
-            let sourceForCroppingHeight = videoNativeHeight;
+                if (isRawVideoPortrait && isDisplayLandscape) {
+                    const rotatedSourceCanvas = document.createElement('canvas');
+                    const rotatedSourceCtx = rotatedSourceCanvas.getContext('2d');
+                    rotatedSourceCanvas.width = videoNativeHeight;
+                    rotatedSourceCanvas.height = videoNativeWidth;
+                    rotatedSourceCtx.save();
+                    rotatedSourceCtx.translate(rotatedSourceCanvas.width / 2, rotatedSourceCanvas.height / 2);
+                    rotatedSourceCtx.rotate(90 * Math.PI / 180);
+                    rotatedSourceCtx.drawImage(tempRawCanvas, -videoNativeWidth / 2, -videoNativeHeight / 2, videoNativeWidth, videoNativeHeight);
+                    rotatedSourceCtx.restore();
+                    sourceForCropping = rotatedSourceCanvas;
+                    sourceForCroppingWidth = rotatedSourceCanvas.width;
+                    sourceForCroppingHeight = rotatedSourceCanvas.height;
+                }
 
-            // If the raw video is portrait AND the display is landscape, we need to rotate the source.
-            // This is the most common scenario for phones.
-            if (isRawVideoPortrait && isDisplayLandscape) {
-                const rotatedSourceCanvas = document.createElement('canvas');
-                const rotatedSourceCtx = rotatedSourceCanvas.getContext('2d');
+                const sourceAspectRatio = sourceForCroppingWidth / sourceForCroppingHeight;
+                const targetAspectRatio = displayWidth / displayHeight;
 
-                rotatedSourceCanvas.width = videoNativeHeight; // Swap dimensions
-                rotatedSourceCanvas.height = videoNativeWidth;
+                let sx = 0, sy = 0;
+                let sCropWidth = sourceForCroppingWidth;
+                let sCropHeight = sourceForCroppingHeight;
 
-                rotatedSourceCtx.save();
-                rotatedSourceCtx.translate(rotatedSourceCanvas.width / 2, rotatedSourceCanvas.height / 2);
-                rotatedSourceCtx.rotate(90 * Math.PI / 180); // Rotate 90 degrees clockwise
-                rotatedSourceCtx.drawImage(tempRawCanvas, -videoNativeWidth / 2, -videoNativeHeight / 2, videoNativeWidth, videoNativeHeight);
-                rotatedSourceCtx.restore();
+                if (sourceAspectRatio > targetAspectRatio) {
+                    sCropHeight = sourceForCroppingHeight;
+                    sCropWidth = sCropHeight * targetAspectRatio;
+                    sx = (sourceForCroppingWidth - sCropWidth) / 2;
+                    sy = 0;
+                } else {
+                    sCropWidth = sourceForCroppingWidth;
+                    sCropHeight = sCropWidth / targetAspectRatio;
+                    sy = (sourceForCroppingHeight - sCropHeight) / 2;
+                    sx = 0;
+                }
 
-                sourceForCropping = rotatedSourceCanvas; // Use the rotated canvas as the source for cropping
-                sourceForCroppingWidth = rotatedSourceCanvas.width;
-                sourceForCroppingHeight = rotatedSourceCanvas.height;
+                ctx.save();
+                if (currentFacingMode === 'user') {
+                    ctx.translate(hiddenCanvas.width, 0);
+                    ctx.scale(-1, 1);
+                }
+                ctx.drawImage(sourceForCropping, sx, sy, sCropWidth, sCropHeight, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+                ctx.restore();
+
+                applyContrastFilter(ctx, 50);
+
+                const imageDataUrl = hiddenCanvas.toDataURL('image/png');
+
+                if (currentPalmTarget === 'left') {
+                    leftPalmPhotos.push(imageDataUrl);
+                    renderPhotos('left');
+                } else if (currentPalmTarget === 'right') {
+                    rightPalmPhotos.push(imageDataUrl);
+                    renderPhotos('right');
+                }
+
+                updateMessageBox('Image captured successfully! It will be uploaded on form submission.', 'success');
+
+            } catch (error) {
+                console.error('Capture Error:', error);
+                updateMessageBox(`Error capturing image: ${error.message}`, 'error');
+            } finally {
+                captureBtn.disabled = false;
             }
-            // Note: If the video is landscape and display is portrait, the existing object-fit: cover logic
-            // should handle the cropping correctly without explicit rotation here, as the target canvas
-            // will be portrait.
-
-            // --- Calculate cropping parameters to mimic object-fit: cover ---
-            // Use the dimensions of the (potentially rotated) sourceForCropping and the final hiddenCanvas dimensions.
-            const sourceAspectRatio = sourceForCroppingWidth / sourceForCroppingHeight;
-            const targetAspectRatio = displayWidth / displayHeight; // Aspect ratio of our final output canvas
-
-            let sx = 0, sy = 0; // Source X, Y on sourceForCropping canvas
-            let sCropWidth = sourceForCroppingWidth; // Source Width for cropping
-            let sCropHeight = sourceForCroppingHeight; // Source Height for cropping
-
-            if (sourceAspectRatio > targetAspectRatio) {
-                // Source is wider than target display aspect ratio, crop horizontally
-                sCropHeight = sourceForCroppingHeight;
-                sCropWidth = sCropHeight * targetAspectRatio;
-                sx = (sourceForCroppingWidth - sCropWidth) / 2;
-                sy = 0;
-            } else {
-                // Source is taller than or same aspect ratio as target, crop vertically
-                sCropWidth = sourceForCroppingWidth;
-                sCropHeight = sCropWidth / targetAspectRatio;
-                sy = (sourceForCroppingHeight - sCropHeight) / 2;
-                sx = 0;
-            }
-
-            // --- Draw the cropped and oriented image to the final hiddenCanvas, applying mirroring ---
-            ctx.save();
-            // Apply mirroring ONLY if facingMode is 'user' (front camera)
-            if (currentFacingMode === 'user') {
-                ctx.translate(hiddenCanvas.width, 0); // Move origin to top-right for mirroring
-                ctx.scale(-1, 1); // Apply mirroring for selfie view
-            }
-
-            // Draw the calculated cropped portion from sourceForCropping onto the hiddenCanvas,
-            // filling the entire hiddenCanvas area.
-            ctx.drawImage(sourceForCropping, sx, sy, sCropWidth, sCropHeight, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
-            ctx.restore(); // Restore the context after mirroring transform
-
-            // --- Apply post-capture visual enhancement (contrast/sharpening) ---
-            // This is where lines and fingerprints will "light up" in the captured image.
-            applyContrastFilter(ctx, 50); // Apply a contrast filter (adjust 50 for intensity)
-
-            // Get the image data as a PNG data URL
-            const imageDataUrl = hiddenCanvas.toDataURL('image/png');
-
-            // Add the image to the appropriate palm's photo array
-            if (currentPalmTarget === 'left') {
-                leftPalmPhotos.push(imageDataUrl);
-                renderPhotos('left');
-            } else if (currentPalmTarget === 'right') {
-                rightPalmPhotos.push(imageDataUrl);
-                renderPhotos('right');
-            }
-
-            updateMessageBox('Image captured successfully!', 'success');
-            closeCameraModal(); // Close the modal after capture
         }
 
         /**
@@ -1036,17 +1060,16 @@
                 inputElement = rightPalmInput;
             }
 
-            // Clear existing photos
             galleryElement.innerHTML = '';
 
             if (photosArray.length === 0) {
-                textElement.style.display = 'flex'; // Show placeholder text
+                textElement.style.display = 'flex';
             } else {
-                textElement.style.display = 'none'; // Hide placeholder text
+                textElement.style.display = 'none';
                 photosArray.forEach((dataUrl, index) => {
                     const photoCard = document.createElement('div');
                     photoCard.classList.add('photo-card');
-                    photoCard.dataset.index = index; // Store index for deletion
+                    photoCard.dataset.index = index;
 
                     const img = document.createElement('img');
                     img.src = dataUrl;
@@ -1057,7 +1080,7 @@
                     deleteBtn.textContent = 'x';
                     deleteBtn.title = 'Remove photo';
                     deleteBtn.addEventListener('click', (event) => {
-                        event.stopPropagation(); // Prevent click from bubbling up to upload-box
+                        event.stopPropagation();
                         removePhoto(palm, index);
                     });
 
@@ -1066,7 +1089,6 @@
                     galleryElement.appendChild(photoCard);
                 });
             }
-            // Update the hidden input with the JSON string of all photos
             inputElement.value = JSON.stringify(photosArray);
         }
 
@@ -1084,8 +1106,8 @@
             }
 
             if (index > -1 && index < photosArray.length) {
-                photosArray.splice(index, 1); // Remove photo from array
-                renderPhotos(palm); // Re-render gallery
+                photosArray.splice(index, 1);
+                renderPhotos(palm);
                 updateMessageBox(`${palm === 'left' ? 'Left' : 'Right'} palm photo removed.`, 'info');
             }
         }
@@ -1100,7 +1122,6 @@
             currentPalmTarget = palm;
             modalTitle.textContent = `Capture ${palm === 'left' ? 'Left' : 'Right'} Palm Photo`;
             cameraModal.classList.add('show');
-            // Re-initialize camera with current facing mode when modal opens
             await initCamera();
         }
 
@@ -1109,14 +1130,13 @@
          */
         function closeCameraModal() {
             cameraModal.classList.remove('show');
-            stopCamera(); // Stop camera when modal closes
-            currentPalmTarget = null; // Clear target
-            updateMessageBox('', 'info'); // Clear message box
+            stopCamera();
+            currentPalmTarget = null;
+            updateMessageBox('', 'info');
         }
 
         // --- Event Listeners ---
 
-        // Listen for clicks on the capture trigger buttons
         captureTriggerButtons.forEach(button => {
             button.addEventListener('click', (event) => {
                 const palm = event.target.dataset.palm;
@@ -1149,19 +1169,17 @@
 
         captureBtn.addEventListener('click', captureImage);
 
-        // New: Toggle Camera button functionality
         toggleCameraBtn.addEventListener('click', () => {
             currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
-            initCamera(); // Re-initialize camera with the new facing mode
+            initCamera();
         });
 
-        // New: Toggle Auto Capture button functionality
         toggleAutoCaptureBtn.addEventListener('click', () => {
             isAutoCaptureActive = !isAutoCaptureActive;
             if (isAutoCaptureActive) {
                 toggleAutoCaptureBtn.classList.add('active');
                 toggleAutoCaptureBtn.textContent = 'Auto Capture: ON';
-                lastAutoCaptureTime = 0; // Reset cooldown on activation
+                lastAutoCaptureTime = 0;
                 updateMessageBox('Auto capture is ON. Position hand for capture.', 'info');
             } else {
                 toggleAutoCaptureBtn.classList.remove('active');
@@ -1173,13 +1191,11 @@
 
         // --- Initial Load ---
         window.onload = async () => {
-            await loadHandposeModel(); // Load the ML model once when the page loads
-            // Initial render of empty galleries
+            await loadHandposeModel();
             renderPhotos('left');
             renderPhotos('right');
         };
 
-        // Cleanup: Stop camera stream if the page is closed (as a fallback, modal close handles it too)
         window.addEventListener('beforeunload', () => {
             stopCamera();
         });
