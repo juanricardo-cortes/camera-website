@@ -6,6 +6,8 @@
     <title>Palm Photo Capture with Custom Camera</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <!-- TensorFlow.js CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
     <!-- MediaPipe Hands CDN -->
@@ -139,9 +141,10 @@
             cursor: pointer;
             box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.06);
             border: none;
-            flex-shrink: 0;
-            width: 100%; /* Make buttons full width of the group */
-            max-width: 180px; /* Match upload-box width */
+            display: flex; /* For icon centering */
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem; /* Space between icon and text if text is present */
         }
         button.capture-trigger-btn:hover,
         button.remove-image-btn:hover {
@@ -282,6 +285,32 @@
             100% { left: 100%; }
         }
 
+        /* Message box overlay on camera view */
+        #cameraMessageBox {
+            position: absolute;
+            bottom: 10px; /* Adjust as needed */
+            left: 50%;
+            transform: translateX(-50%);
+            width: 90%;
+            max-width: 300px; /* Limit width on larger screens */
+            padding: 8px 15px;
+            border-radius: 0.75rem;
+            background-color: rgba(255, 255, 255, 0.85); /* Semi-transparent white */
+            color: #374151;
+            font-size: 0.9rem;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 50; /* Above video, below outline */
+            display: none; /* Hidden by default */
+            box-sizing: border-box;
+        }
+        /* Color variations for camera message box */
+        #cameraMessageBox.message-info { background-color: rgba(224, 231, 255, 0.85); color: #4f46e5; }
+        #cameraMessageBox.message-warning { background-color: rgba(255, 248, 224, 0.85); color: #f59e0b; }
+        #cameraMessageBox.message-error { background-color: rgba(254, 242, 242, 0.85); color: #ef4444; }
+        #cameraMessageBox.message-success { background-color: rgba(236, 253, 245, 0.85); color: #10b981; }
+
+
         .controls {
             padding: 1.5rem;
             display: flex;
@@ -314,6 +343,13 @@
             cursor: pointer;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
             border: none;
+            display: flex; /* For icon centering */
+            align-items: center;
+            justify-content: center;
+            /* No gap here, as text is removed */
+        }
+        button i {
+            font-size: 1.2em; /* Adjust icon size */
         }
         button:hover {
             transform: translateY(-2px);
@@ -392,31 +428,6 @@
         .zoom-slider-label.hidden-zoom {
             display: none;
         }
-
-        #message-box {
-            padding: 0.75rem;
-            border-radius: 0.5rem;
-            text-align: center;
-            font-size: 0.875rem;
-            display: none;
-            margin-bottom: 0.5rem;
-        }
-        .message-info {
-            background-color: #e0e7ff;
-            color: #4f46e5;
-        }
-        .message-warning {
-            background-color: #fffbeb;
-            color: #f59e0b;
-        }
-        .message-error {
-            background-color: #fef2f2;
-            color: #ef4444;
-        }
-        .message-success {
-            background-color: #ecfdf5;
-            color: #10b981;
-        }
     </style>
 </head>
 <body>
@@ -431,8 +442,8 @@
                     <!-- Captured images will be appended here -->
                 </div>
             </div>
-            <button class="capture-trigger-btn" data-palm="left">Capture Left Palm</button>
-            <button class="remove-image-btn hidden" data-palm="left">Remove Left Palm</button>
+            <button class="capture-trigger-btn" data-palm="left" aria-label="Capture Left Palm"><i class="fas fa-camera"></i></button>
+            <!-- Removed the main "Remove Left Palm" button -->
         </div>
 
         <div class="palm-input-group">
@@ -444,8 +455,8 @@
                     <!-- Captured images will be appended here -->
                 </div>
             </div>
-            <button class="capture-trigger-btn" data-palm="right">Capture Right Palm</button>
-            <button class="remove-image-btn hidden" data-palm="right">Remove Right Palm</button>
+            <button class="capture-trigger-btn" data-palm="right" aria-label="Capture Right Palm"><i class="fas fa-camera"></i></button>
+            <!-- Removed the main "Remove Right Palm" button -->
         </div>
     </div>
 
@@ -454,25 +465,25 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2 id="modalTitle">Capture Palm Photo</h2>
-                <button class="modal-close-btn" id="closeModalBtn">&times;</button>
+                <button class="modal-close-btn" id="closeModalBtn" aria-label="Close Camera"><i class="fas fa-times"></i></button>
             </div>
             <div class="camera-area">
                 <video id="cameraFeed" autoplay playsinline></video>
                 <canvas id="hiddenCanvas"></canvas>
-                <canvas id="motionDetectionCanvas"></canvas> <!-- New: Canvas for motion detection -->
+                <canvas id="motionDetectionCanvas"></canvas>
                 <div id="handOutlineOverlay" class="hand-outline-overlay red-outline"></div>
+                <!-- Message box overlay on camera view -->
+                <div id="cameraMessageBox" class="message-info"></div>
             </div>
             <div class="controls">
-                <div id="message-box" class="message-info"></div>
                 <div class="button-group">
-                    <button id="captureBtn" class="btn-capture" disabled>Capture Image</button>
-                    <button id="toggleCameraBtn" class="btn-secondary">Toggle Camera</button>
-                    <button id="toggleAutoCaptureBtn" class="btn-toggle-auto-capture">Toggle Auto Capture</button>
+                    <button id="captureBtn" class="btn-capture" disabled aria-label="Capture Image"><i class="fas fa-camera"></i></button>
+                    <button id="toggleCameraBtn" class="btn-secondary" aria-label="Toggle Camera"><i class="fas fa-camera-rotate"></i></button>
+                    <button id="toggleAutoCaptureBtn" class="btn-toggle-auto-capture" aria-label="Toggle Auto Capture"><i class="fas fa-magic"></i></button>
                 </div>
                 <!-- Zoom controls group -->
                 <div id="zoomControlsGroup" class="zoom-controls-group">
-                    <button id="zoomOutBtn" class="btn-secondary">Zoom Out</button>
-                    <button id="zoomInBtn" class="btn-primary">Zoom In</button>
+                    <!-- Zoom In/Out buttons removed as requested -->
                 </div>
                 <label for="zoomSlider" id="zoomSliderLabel" class="zoom-slider-label">Zoom Level:</label>
                 <input type="range" id="zoomSlider" min="0" max="100" value="0" class="w-full" disabled>
@@ -481,21 +492,26 @@
     </div>
 
     <script>
+        // --- Cloudinary Configuration ---
+        const CLOUDINARY_CLOUD_NAME = 'dazdmk8zp';
+        const CLOUDINARY_UPLOAD_PRESET = 'palm_uploads';
+
         // --- DOM Elements ---
         const cameraModal = document.getElementById('cameraModal');
         const closeModalBtn = document.getElementById('closeModalBtn');
         const modalTitle = document.getElementById('modalTitle');
         const captureTriggerButtons = document.querySelectorAll('.palm-input-group .capture-trigger-btn');
-        const removeImageButtons = document.querySelectorAll('.palm-input-group .remove-image-btn'); // New: Added reference to remove buttons
+        // Removed direct reference to main remove buttons as they are removed from HTML
+        // const removeImageButtons = document.querySelectorAll('.palm-input-group .remove-image-btn'); 
 
         const cameraFeed = document.getElementById('cameraFeed');
-        const zoomInBtn = document.getElementById('zoomInBtn');
-        const zoomOutBtn = document.getElementById('zoomOutBtn');
+        const zoomInBtn = document.getElementById('zoomInBtn'); /* Kept for JS reference, but removed from HTML */
+        const zoomOutBtn = document.getElementById('zoomOutBtn'); /* Kept for JS reference, but removed from HTML */
         const zoomSlider = document.getElementById('zoomSlider');
         const zoomSliderLabel = document.getElementById('zoomSliderLabel');
         const zoomControlsGroup = document.getElementById('zoomControlsGroup');
 
-        const messageBox = document.getElementById('message-box');
+        const cameraMessageBox = document.getElementById('cameraMessageBox');
         const handOutlineOverlay = document.getElementById('handOutlineOverlay');
         const hiddenCanvas = document.getElementById('hiddenCanvas');
         const ctx = hiddenCanvas.getContext('2d');
@@ -523,6 +539,7 @@
         let isHandDetected = false;
         let lightingCondition = 'unknown'; // 'good', 'low', 'high', 'poor_contrast'
         let isHandSteady = true;
+        let isFocused = false; // New: Track focus status
         let handposeModel = null;
         let currentPalmTarget = null;
         let animationFrameId = null;
@@ -536,9 +553,10 @@
 
         // Motion detection variables
         let lastFrameData = null;
-        // Increased threshold for less sensitivity, adjust as needed.
-        // This value might need further fine-tuning based on device, lighting, and expected motion.
-        const MOTION_THRESHOLD = 50000; // Significantly increased threshold
+        const MOTION_THRESHOLD = 5000000; // Significantly increased threshold
+
+        // Focus detection variables
+        const SHARPNESS_THRESHOLD = 0; // Adjust this value based on testing for desired sharpness
 
         // Arrays to store captured image Data URLs for each palm (will be uploaded by footer script)
         let leftPalmPhotos = [];
@@ -552,14 +570,25 @@
         // --- Utility Functions ---
 
         /**
-         * Displays a message in the message box.
+         * Sanitizes email for use as a folder name.
+         * @param {string} email - The email address to sanitize.
+         * @returns {string} The sanitized string.
+         */
+        function sanitizeEmailForFolder(email) {
+            let sanitized = email.replace(/[^a-zA-Z0-9@.]/g, '_').toLowerCase();
+            sanitized = sanitized.replace(/\./g, '_').replace(/@/g, '__');
+            return sanitized;
+        }
+
+        /**
+         * Displays a message in the camera message box.
          * @param {string} message - The message to display.
          * @param {string} type - The type of message ('info', 'warning', 'error', 'success').
          */
         function updateMessageBox(message, type = 'info') {
-            messageBox.textContent = message;
-            messageBox.style.display = 'block';
-            messageBox.className = `message-box message-${type}`;
+            cameraMessageBox.textContent = message;
+            cameraMessageBox.style.display = 'block';
+            cameraMessageBox.className = `message-box ${type}`; // Use the new class names
         }
 
         /**
@@ -567,7 +596,6 @@
          */
         async function initCamera() {
             try {
-                // Stop any existing camera stream first
                 stopCamera();
 
                 const videoConstraints = {
@@ -589,26 +617,18 @@
                     zoomSlider.step = zoomCapabilities.step;
                     currentZoom = zoomCapabilities.min;
                     zoomSlider.value = currentZoom;
-                    // Ensure zoom controls are visible
                     zoomControlsGroup.classList.remove('hidden-zoom');
                     zoomSliderLabel.classList.remove('hidden-zoom');
                     zoomSlider.classList.remove('hidden-zoom');
-                    zoomInBtn.disabled = false;
-                    zoomOutBtn.disabled = false;
                     zoomSlider.disabled = false;
                     updateZoomDisplay();
                     updateMessageBox('Camera ready. Zoom controls available.', 'info');
-                    console.log('Zoom capabilities:', zoomCapabilities);
                 } else {
                     updateMessageBox('Zoom is not supported by your camera or browser.', 'warning');
-                    // Hide zoom controls
                     zoomControlsGroup.classList.add('hidden-zoom');
                     zoomSliderLabel.classList.add('hidden-zoom');
                     zoomSlider.classList.add('hidden-zoom');
-                    zoomInBtn.disabled = true;
-                    zoomOutBtn.disabled = true;
                     zoomSlider.disabled = true;
-                    console.log('Zoom not supported by device/browser.');
                 }
                 updateHandOutline();
                 checkCaptureButtonState();
@@ -634,12 +654,9 @@
                 else {
                     updateMessageBox(`Error: ${error.message}. Could not access camera.`, 'error');
                 }
-                // Always hide zoom controls if camera init fails
                 zoomControlsGroup.classList.add('hidden-zoom');
                 zoomSliderLabel.classList.add('hidden-zoom');
                 zoomSlider.classList.add('hidden-zoom');
-                zoomInBtn.disabled = true;
-                zoomOutBtn.disabled = true;
                 zoomSlider.disabled = true;
                 captureBtn.disabled = true;
             }
@@ -650,7 +667,9 @@
          */
         function stopCamera() {
             if (mediaStream) {
-                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream.getTracks().forEach(track => {
+                    track.stop();
+                });
                 cameraFeed.srcObject = null;
                 mediaStream = null;
                 videoTrack = null;
@@ -665,6 +684,7 @@
             }
             lastFrameData = null;
             isHandSteady = true;
+            isFocused = false; // Reset focus state
         }
 
         /**
@@ -678,7 +698,6 @@
             }
 
             newZoom = Math.max(zoomCapabilities.min, Math.min(newZoom, zoomCapabilities.max));
-            console.log('Attempting to apply zoom:', newZoom);
 
             videoTrack.applyConstraints({
                 advanced: [{ zoom: newZoom }]
@@ -686,7 +705,6 @@
                 currentZoom = newZoom;
                 zoomSlider.value = currentZoom;
                 updateZoomDisplay();
-                console.log('Zoom applied successfully to:', currentZoom);
             }).catch(error => {
                 console.error('Error applying zoom:', error);
                 updateMessageBox(`Failed to apply zoom: ${error.message}`, 'error');
@@ -711,7 +729,7 @@
                 handOutlineOverlay.classList.remove('green-outline');
                 handOutlineOverlay.classList.add('red-outline');
             }
-            if (isHandDetected && lightingCondition === 'good' && isHandSteady) {
+            if (isHandDetected && lightingCondition === 'good' && isHandSteady && isFocused) {
                 handOutlineOverlay.classList.add('scanning');
             } else {
                 handOutlineOverlay.classList.remove('scanning');
@@ -729,7 +747,9 @@
             let luminances = [];
             const pixelCount = data.length / 4;
 
-            if (pixelCount === 0) return 'unknown';
+            if (pixelCount === 0) {
+                return 'unknown';
+            }
 
             for (let i = 0; i < data.length; i += 4) {
                 const luminance = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
@@ -744,15 +764,17 @@
             }
             const luminanceStdDev = Math.sqrt(variance / luminances.length);
 
+            let condition;
             if (averageLuminance < LOW_BRIGHTNESS_THRESHOLD) {
-                return 'low';
+                condition = 'low';
             } else if (averageLuminance > HIGH_BRIGHTNESS_THRESHOLD) {
-                return 'high';
+                condition = 'high';
             } else if (luminanceStdDev < MIN_CONTRAST_THRESHOLD) {
-                return 'poor_contrast';
+                condition = 'poor_contrast';
             } else {
-                return 'good';
+                condition = 'good';
             }
+            return condition;
         }
 
         /**
@@ -762,37 +784,105 @@
          * @returns {boolean} True if motion is detected, false otherwise.
          */
         function detectMotion(video) {
-            if (!video.videoWidth || !video.videoHeight) return false;
+            if (!video.videoWidth || !video.videoHeight) {
+                return false;
+            }
 
-            // Use a smaller central region for motion detection
-            const regionWidth = video.videoWidth * 0.8; // 80% of video width
-            const regionHeight = video.videoHeight * 0.8; // 80% of video height
+            const regionWidth = video.videoWidth * 0.8;
+            const regionHeight = video.videoHeight * 0.8;
             const regionX = (video.videoWidth - regionWidth) / 2;
             const regionY = (video.videoHeight - regionHeight) / 2;
 
             motionDetectionCanvas.width = regionWidth;
             motionDetectionCanvas.height = regionHeight;
-            // Draw only the central region to the motion detection canvas
             motionDetectionCtx.drawImage(video, regionX, regionY, regionWidth, regionHeight, 0, 0, regionWidth, regionHeight);
             const currentFrameData = motionDetectionCtx.getImageData(0, 0, regionWidth, regionHeight).data;
 
             if (!lastFrameData || lastFrameData.length !== currentFrameData.length) {
                 lastFrameData = currentFrameData;
-                return false; // No previous frame or dimensions changed
+                return false;
             }
 
             let difference = 0;
-            // Compare a subset of pixels for performance, e.g., every 10th pixel
-            for (let i = 0; i < currentFrameData.length; i += 40) { // Check every 10th pixel (4 bytes * 10)
+            for (let i = 0; i < currentFrameData.length; i += 40) {
                 difference += Math.abs(currentFrameData[i] - lastFrameData[i]);
                 difference += Math.abs(currentFrameData[i+1] - lastFrameData[i+1]);
                 difference += Math.abs(currentFrameData[i+2] - lastFrameData[i+2]);
             }
-            console.log("Motion difference (central region):", difference); // Log motion difference
             lastFrameData = currentFrameData;
 
-            // Increased threshold for less sensitivity. This value might need further fine-tuning.
             return difference > MOTION_THRESHOLD;
+        }
+
+        /**
+         * Analyzes the focus (sharpness) of the image within a given bounding box.
+         * Uses Laplacian variance.
+         * @param {CanvasRenderingContext2D} context - The context of the canvas containing the image.
+         * @param {object} boundingBox - {x, y, width, height} of the region to analyze.
+         * @returns {number} The sharpness score (variance of Laplacian). Higher is sharper.
+         */
+        function analyzeFocus(context, boundingBox) {
+            const canvasWidth = context.canvas.width;
+            const canvasHeight = context.canvas.height;
+
+            // Clamp bounding box coordinates to canvas boundaries
+            const x1 = Math.max(0, Math.floor(boundingBox.x));
+            const y1 = Math.max(0, Math.floor(boundingBox.y));
+            const x2 = Math.min(canvasWidth, Math.ceil(boundingBox.x + boundingBox.width));
+            const y2 = Math.min(canvasHeight, Math.ceil(boundingBox.y + boundingBox.height));
+
+            // Recalculate width and height from clamped coordinates
+            const width = x2 - x1;
+            const height = y2 - y1;
+
+            // If the calculated region has zero or negative dimensions, return 0 sharpness
+            if (width <= 0 || height <= 0) {
+                console.warn(`[analyzeFocus] Invalid region dimensions after clamping: x1=${x1}, y1=${y1}, width=${width}, height=${height}. Returning 0 sharpness.`);
+                return 0;
+            }
+
+            let imageData;
+            try {
+                imageData = context.getImageData(x1, y1, width, height);
+            } catch (error) {
+                console.error(`[analyzeFocus] Failed to get ImageData for region [${x1}, ${y1}, ${width}, ${height}]. Error:`, error);
+                return 0;
+            }
+            
+            const pixels = imageData.data;
+            const grayPixels = new Float32Array(width * height);
+
+            // Convert to grayscale
+            for (let i = 0, j = 0; i < pixels.length; i += 4, j++) {
+                grayPixels[j] = (pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114);
+            }
+
+            // Apply Laplacian filter (simplified 3x3 kernel)
+            //  0  1  0
+            //  1 -4  1
+            //  0  1  0
+            let sumOfSquares = 0;
+            let count = 0;
+
+            for (let row = 1; row < height - 1; row++) {
+                for (let col = 1; col < width - 1; col++) {
+                    const i = row * width + col;
+                    const laplacian =
+                        grayPixels[i - width] + // top
+                        grayPixels[i + width] + // bottom
+                        grayPixels[i - 1] +     // left
+                        grayPixels[i + 1] -     // right
+                        (4 * grayPixels[i]);    // center
+
+                    sumOfSquares += (laplacian * laplacian);
+                    count++;
+                }
+            }
+
+            if (count === 0) return 0;
+
+            const variance = sumOfSquares / count;
+            return variance;
         }
 
 
@@ -802,6 +892,7 @@
         function updateCombinedStatusMessage() {
             let handStatus = isHandDetected ? 'Hand detected!' : 'No hand visible.';
             let lightingStatusText = '';
+            let focusStatusText = '';
             let messageType = 'info';
 
             switch (lightingCondition) {
@@ -826,24 +917,32 @@
                     messageType = 'info';
             }
 
+            if (isHandDetected) { // Only check focus if hand is detected
+                if (isFocused) {
+                    focusStatusText = 'Image is in focus.';
+                    if (messageType !== 'warning') messageType = 'success'; // Prioritize warning if lighting is bad
+                } else {
+                    focusStatusText = 'Image is blurry, adjust focus.';
+                    messageType = 'warning'; // Focus issue is a warning
+                }
+            }
+
             let motionStatusText = isHandSteady ? '' : 'Hold hand steady.';
             if (!isHandSteady) {
                 messageType = 'warning';
             }
 
-            const fullMessage = `${handStatus} ${lightingStatusText} ${motionStatusText}`.trim();
+            const messages = [handStatus, lightingStatusText, focusStatusText, motionStatusText].filter(Boolean); // Remove empty strings
+            const fullMessage = messages.join(' ').trim();
             updateMessageBox(fullMessage, messageType);
         }
 
         /**
-         * Enables or disables the capture button based on hand detection, lighting, and stability.
+         * Enables or disables the capture button based on hand detection, lighting, stability, and focus.
          */
         function checkCaptureButtonState() {
-            if (isHandDetected && lightingCondition === 'good' && isHandSteady) {
-                captureBtn.disabled = false;
-            } else {
-                captureBtn.disabled = true;
-            }
+            const canCapture = isHandDetected && lightingCondition === 'good' && isHandSteady && isFocused;
+            captureBtn.disabled = !canCapture;
         }
 
         /**
@@ -871,14 +970,35 @@
 
             isHandSteady = !detectMotion(cameraFeed);
 
+            // Draw the video frame onto the hidden canvas for ML and image analysis
+            // Use the video's native dimensions for accurate pixel data for analysis
+            hiddenCanvas.width = cameraFeed.videoWidth;
+            hiddenCanvas.height = cameraFeed.videoHeight;
             ctx.drawImage(cameraFeed, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
-
+            
             const imageData = ctx.getImageData(0, 0, hiddenCanvas.width, hiddenCanvas.height);
             lightingCondition = analyzeLighting(imageData);
 
             const predictions = await handposeModel.estimateHands(hiddenCanvas);
-
             isHandDetected = predictions.length > 0;
+
+            if (isHandDetected && predictions[0] && predictions[0].boundingBox) { // Ensure prediction and bounding box exist
+                const bbox = predictions[0].boundingBox;
+                // Round the bounding box coordinates to integers
+                let handBoundingBox = {
+                    x: Math.round(bbox.topLeft[0][0]),
+                    y: Math.round(bbox.topLeft[0][1]),
+                    width: Math.round(bbox.bottomRight[0][0] - bbox.topLeft[0][0]),
+                    height: Math.round(bbox.bottomRight[0][1] - bbox.topLeft[0][1])
+                };
+
+                const sharpnessScore = analyzeFocus(ctx, handBoundingBox);
+                isFocused = sharpnessScore >= SHARPNESS_THRESHOLD;
+                console.log(`Sharpness Score: ${sharpnessScore.toFixed(2)}, Focused: ${isFocused}`); // Log sharpness score
+            } else {
+                isFocused = false; // Not focused if no hand detected or no valid bounding box
+            }
+
 
             updateHandOutline();
             updateCombinedStatusMessage();
@@ -888,15 +1008,17 @@
                 const now = Date.now();
                 const canCaptureNow = (now - lastAutoCaptureTime > autoCaptureCooldown);
 
-                if (isHandDetected && lightingCondition === 'good' && isHandSteady) {
+                // Auto-capture condition now includes isFocused
+                if (isHandDetected && lightingCondition === 'good' && isHandSteady && isFocused) {
                     if (!scanCompletionTimeoutId && canCaptureNow) {
-                        updateMessageBox('Scanning... Hold hand steady.', 'info');
+                        updateMessageBox('Scanning... Hold hand steady and in focus.', 'info');
                         scanCompletionTimeoutId = setTimeout(() => {
-                            if (isHandDetected && lightingCondition === 'good' && isHandSteady) {
-                                captureImage(); // Now this just captures to Data URL
+                            // Re-check all conditions before final capture
+                            if (isHandDetected && lightingCondition === 'good' && isHandSteady && isFocused) {
+                                captureImage();
                                 lastAutoCaptureTime = Date.now();
                             } else {
-                                updateMessageBox('Scan interrupted. Conditions changed or hand moved.', 'warning');
+                                updateMessageBox('Scan interrupted. Conditions changed or hand moved/blurred.', 'warning');
                             }
                             scanCompletionTimeoutId = null;
                         }, scanDuration);
@@ -905,7 +1027,7 @@
                     if (scanCompletionTimeoutId) {
                         clearTimeout(scanCompletionTimeoutId);
                         scanCompletionTimeoutId = null;
-                        updateMessageBox('Scan cancelled. Adjust hand, lighting, or hold steady.', 'warning');
+                        updateMessageBox('Scan cancelled. Adjust hand, lighting, focus, or hold steady.', 'warning');
                     }
                 }
             } else {
@@ -939,29 +1061,59 @@
 
         /**
          * Captures the current frame from the camera feed, processes it,
-         * and stores the Data URL locally. Upload to Cloudinary happens on form submission.
+         * and uploads to Cloudinary.
          */
-        function captureImage() {
-            if (!cameraFeed.srcObject) {
-                updateMessageBox('Camera not active. Cannot capture image.', 'error');
-                return;
-            }
-            if (!isAutoCaptureActive && captureBtn.disabled) {
-                updateMessageBox('Cannot capture: Hand not detected, lighting is poor, or hand is moving.', 'warning');
+        async function captureImage() {
+            const userEmailInput = document.querySelector('#field-419c2e1a');
+            const userEmail = userEmailInput ? userEmailInput.value : 'test@example.com';
+
+            if (!userEmail) {
+                updateMessageBox('Please enter your email address before capturing photos.', 'error');
+                captureBtn.disabled = false;
                 return;
             }
 
-            updateMessageBox('Capturing image...', 'info');
-            captureBtn.disabled = true;
+            if (!cameraFeed.srcObject) {
+                updateMessageBox('Camera not active. Cannot capture image.', 'error');
+                captureBtn.disabled = false;
+                return;
+            }
+            // Ensure all conditions are met for capture
+            if (!isHandDetected || lightingCondition !== 'good' || !isHandSteady || !isFocused) {
+                 if (!isAutoCaptureActive) { // Only show specific warning for manual capture if conditions aren't met
+                    updateMessageBox('Cannot capture: Hand not detected, lighting is poor, hand is moving, or image is out of focus.', 'warning');
+                 }
+                captureBtn.disabled = false;
+                return;
+            }
+
+
+            updateMessageBox('Capturing and uploading image...', 'info');
+            captureBtn.disabled = true; // Disable capture button during upload
 
             try {
                 const videoNativeWidth = cameraFeed.videoWidth;
                 const videoNativeHeight = cameraFeed.videoHeight;
-                const displayWidth = cameraFeed.offsetWidth;
-                const displayHeight = cameraFeed.offsetHeight;
+                
+                // Define target capture resolution (2K / QHD)
+                const TARGET_CAPTURE_WIDTH = 2560; // 2K width
+                const TARGET_CAPTURE_HEIGHT = 1440; // 2K height (1440p)
 
-                hiddenCanvas.width = displayWidth;
-                hiddenCanvas.height = displayHeight;
+                // Determine target canvas dimensions based on display orientation
+                const isDisplayLandscape = window.innerWidth > window.innerHeight; // Check actual window orientation
+                let targetCanvasWidth, targetCanvasHeight;
+
+                if (isDisplayLandscape) {
+                    targetCanvasWidth = TARGET_CAPTURE_WIDTH;
+                    targetCanvasHeight = TARGET_CAPTURE_HEIGHT;
+                } else {
+                    // If display is portrait, swap target dimensions
+                    targetCanvasWidth = TARGET_CAPTURE_HEIGHT;
+                    targetCanvasHeight = TARGET_CAPTURE_WIDTH;
+                }
+
+                hiddenCanvas.width = targetCanvasWidth;
+                hiddenCanvas.height = targetCanvasHeight;
                 ctx.clearRect(0, 0, hiddenCanvas.width, hiddenCanvas.height);
 
                 const tempRawCanvas = document.createElement('canvas');
@@ -971,40 +1123,44 @@
                 tempRawCtx.drawImage(cameraFeed, 0, 0, videoNativeWidth, videoNativeHeight);
 
                 const isRawVideoPortrait = videoNativeHeight > videoNativeWidth;
-                const isDisplayLandscape = displayWidth > displayHeight;
+                const needsRotation = (isRawVideoPortrait && isDisplayLandscape) || (!isRawVideoPortrait && !isDisplayLandscape);
 
                 let sourceForCropping = tempRawCanvas;
                 let sourceForCroppingWidth = videoNativeWidth;
                 let sourceForCroppingHeight = videoNativeHeight;
 
-                if (isRawVideoPortrait && isDisplayLandscape) {
+                if (needsRotation) {
                     const rotatedSourceCanvas = document.createElement('canvas');
                     const rotatedSourceCtx = rotatedSourceCanvas.getContext('2d');
-                    rotatedSourceCanvas.width = videoNativeHeight;
+                    rotatedSourceCanvas.width = videoNativeHeight; // Swapped dimensions
                     rotatedSourceCanvas.height = videoNativeWidth;
+
                     rotatedSourceCtx.save();
                     rotatedSourceCtx.translate(rotatedSourceCanvas.width / 2, rotatedSourceCanvas.height / 2);
-                    rotatedSourceCtx.rotate(90 * Math.PI / 180);
+                    rotatedSourceCtx.rotate(90 * Math.PI / 180); // Rotate 90 degrees clockwise
                     rotatedSourceCtx.drawImage(tempRawCanvas, -videoNativeWidth / 2, -videoNativeHeight / 2, videoNativeWidth, videoNativeHeight);
                     rotatedSourceCtx.restore();
+
                     sourceForCropping = rotatedSourceCanvas;
                     sourceForCroppingWidth = rotatedSourceCanvas.width;
                     sourceForCroppingHeight = rotatedSourceCanvas.height;
                 }
 
                 const sourceAspectRatio = sourceForCroppingWidth / sourceForCroppingHeight;
-                const targetAspectRatio = displayWidth / displayHeight;
+                const targetAspectRatio = targetCanvasWidth / targetCanvasHeight;
 
                 let sx = 0, sy = 0;
                 let sCropWidth = sourceForCroppingWidth;
                 let sCropHeight = sourceForCroppingHeight;
 
                 if (sourceAspectRatio > targetAspectRatio) {
+                    // Source is wider than target aspect ratio, crop horizontally
                     sCropHeight = sourceForCroppingHeight;
                     sCropWidth = sCropHeight * targetAspectRatio;
                     sx = (sourceForCroppingWidth - sCropWidth) / 2;
                     sy = 0;
                 } else {
+                    // Source is taller than or same aspect ratio as target, crop vertically
                     sCropWidth = sourceForCroppingWidth;
                     sCropHeight = sCropWidth / targetAspectRatio;
                     sy = (sourceForCroppingHeight - sCropHeight) / 2;
@@ -1016,28 +1172,59 @@
                     ctx.translate(hiddenCanvas.width, 0);
                     ctx.scale(-1, 1);
                 }
+                // Draw the cropped and oriented source onto the fixed-size hiddenCanvas
                 ctx.drawImage(sourceForCropping, sx, sy, sCropWidth, sCropHeight, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
                 ctx.restore();
 
-                applyContrastFilter(ctx, 50);
+                applyContrastFilter(ctx, 25);
 
                 const imageDataUrl = hiddenCanvas.toDataURL('image/png');
 
-                if (currentPalmTarget === 'left') {
-                    leftPalmPhotos.push(imageDataUrl);
-                    renderPhotos('left');
-                } else if (currentPalmTarget === 'right') {
-                    rightPalmPhotos.push(imageDataUrl);
-                    renderPhotos('right');
+                // --- Upload to Cloudinary ---
+                const sanitizedFolderName = sanitizeEmailForFolder(userEmail);
+                const randomString = Math.random().toString(36).substring(2, 8); 
+                const palmTypePrefix = currentPalmTarget === 'left' ? 'left_hand' : 'right_hand';
+                const uploadFolder = `${sanitizedFolderName}/${palmTypePrefix}_${randomString}`;
+                console.log(`[Cloudinary Upload] Uploading to folder: ${uploadFolder}`);
+
+                const formData = new FormData();
+                formData.append('file', imageDataUrl);
+                formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
+                formData.append('cloud_name', CLOUDINARY_CLOUD_NAME);
+                formData.append('folder', uploadFolder);
+                formData.append('public_id', `${palmTypePrefix}_${Date.now()}`);
+
+                const uploadResponse = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const uploadResult = await uploadResponse.json();
+                console.log("[Cloudinary Upload] Response:", uploadResult);
+
+                if (uploadResult.secure_url) {
+                    const imageUrl = uploadResult.secure_url;
+                    console.log("[Cloudinary Upload] Success! URL:", imageUrl);
+
+                    if (currentPalmTarget === 'left') {
+                        leftPalmPhotos.push(imageUrl);
+                        renderPhotos('left');
+                    } else if (currentPalmTarget === 'right') {
+                        rightPalmPhotos.push(imageUrl);
+                        renderPhotos('right');
+                    }
+
+                    updateMessageBox('Image captured and uploaded successfully!', 'success');
+                } else {
+                    console.error('[Cloudinary Upload] Failed:', uploadResult);
+                    updateMessageBox(`Image upload failed: ${uploadResult.error.message || 'Unknown error'}`, 'error');
                 }
-
-                updateMessageBox('Image captured successfully! It will be uploaded on form submission.', 'success');
-
             } catch (error) {
-                console.error('Capture Error:', error);
-                updateMessageBox(`Error capturing image: ${error.message}`, 'error');
+                console.error('[Cloudinary Upload] Error during capture or upload:', error);
+                updateMessageBox(`Error capturing or uploading image: ${error.message}`, 'error');
             } finally {
                 captureBtn.disabled = false;
+                closeCameraModal();
             }
         }
 
@@ -1066,19 +1253,19 @@
                 textElement.style.display = 'flex';
             } else {
                 textElement.style.display = 'none';
-                photosArray.forEach((dataUrl, index) => {
+                photosArray.forEach((url, index) => {
                     const photoCard = document.createElement('div');
                     photoCard.classList.add('photo-card');
                     photoCard.dataset.index = index;
 
                     const img = document.createElement('img');
-                    img.src = dataUrl;
+                    img.src = url;
                     img.alt = `${palm} Palm Photo ${index + 1}`;
 
                     const deleteBtn = document.createElement('button');
                     deleteBtn.classList.add('delete-photo-btn');
                     deleteBtn.textContent = 'x';
-                    deleteBtn.title = 'Remove photo';
+                    deleteBtn.title = 'Remove photo (local only)';
                     deleteBtn.addEventListener('click', (event) => {
                         event.stopPropagation();
                         removePhoto(palm, index);
@@ -1108,7 +1295,8 @@
             if (index > -1 && index < photosArray.length) {
                 photosArray.splice(index, 1);
                 renderPhotos(palm);
-                updateMessageBox(`${palm === 'left' ? 'Left' : 'Right'} palm photo removed.`, 'info');
+                updateMessageBox(`${palm === 'left' ? 'Left' : 'Right'} palm photo removed (local only). Note: Image remains on Cloudinary.`, 'info');
+            } else {
             }
         }
 
@@ -1144,20 +1332,10 @@
             });
         });
 
-        closeModalBtn.addEventListener('click', closeCameraModal);
-
-        zoomInBtn.addEventListener('click', () => {
-            if (zoomCapabilities) {
-                let newZoom = currentZoom + (zoomCapabilities.step || (zoomCapabilities.max - zoomCapabilities.min) / 10);
-                applyZoom(newZoom);
-            }
-        });
-
-        zoomOutBtn.addEventListener('click', () => {
-            if (zoomCapabilities) {
-                let newZoom = currentZoom - (zoomCapabilities.step || (zoomCapabilities.max - zoomCapabilities.min) / 10);
-                applyZoom(newZoom);
-            }
+        closeModalBtn.addEventListener('click', () => {
+            closeModalBtn.disabled = true;
+            closeCameraModal();
+            setTimeout(() => closeModalBtn.disabled = false, 500);
         });
 
         zoomSlider.addEventListener('input', (event) => {
@@ -1167,7 +1345,9 @@
             }
         });
 
-        captureBtn.addEventListener('click', captureImage);
+        captureBtn.addEventListener('click', () => {
+            captureImage();
+        });
 
         toggleCameraBtn.addEventListener('click', () => {
             currentFacingMode = (currentFacingMode === 'user') ? 'environment' : 'user';
@@ -1178,12 +1358,14 @@
             isAutoCaptureActive = !isAutoCaptureActive;
             if (isAutoCaptureActive) {
                 toggleAutoCaptureBtn.classList.add('active');
-                toggleAutoCaptureBtn.textContent = 'Auto Capture: ON';
+                toggleAutoCaptureBtn.innerHTML = '<i class="fas fa-magic"></i>'; // Icon only
+                toggleAutoCaptureBtn.setAttribute('aria-label', 'Auto Capture: ON'); // Accessibility
                 lastAutoCaptureTime = 0;
                 updateMessageBox('Auto capture is ON. Position hand for capture.', 'info');
             } else {
                 toggleAutoCaptureBtn.classList.remove('active');
-                toggleAutoCaptureBtn.textContent = 'Auto Capture: OFF';
+                toggleAutoCaptureBtn.innerHTML = '<i class="fas fa-magic"></i>'; // Icon only
+                toggleAutoCaptureBtn.setAttribute('aria-label', 'Auto Capture: OFF'); // Accessibility
                 updateMessageBox('Auto capture is OFF. Use manual capture button.', 'info');
             }
         });
