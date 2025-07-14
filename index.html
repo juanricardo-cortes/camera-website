@@ -1224,8 +1224,8 @@
                 updateMessageBox(`Error capturing or uploading image: ${error.message}`, 'error');
             } finally {
                 captureBtn.disabled = false;
-                closeCameraModal();
             }
+			closeCameraModal();
         }
 
         /**
@@ -1327,7 +1327,7 @@
 
         captureTriggerButtons.forEach(button => {
             button.addEventListener('click', (event) => {
-                const palm = event.target.dataset.palm;
+                const palm = event.currentTarget.dataset.palm;
                 openCameraModal(palm);
             });
         });
