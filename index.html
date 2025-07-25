@@ -577,6 +577,28 @@
         // --- Utility Functions ---
 
         /**
+         * Draws a planet on the canvas.
+         * @param {CanvasRenderingContext2D} ctx - The canvas rendering context.
+         * @param {number} x - The x-coordinate of the planet's center.
+         * @param {number} y - The y-coordinate of the planet's center.
+         * @param {number} radius - The radius of the planet.
+         * @param {string} color - The color of the planet.
+         * @param {string} name - The name of the planet.
+         */
+        function drawPlanet(ctx, x, y, radius, color, name) {
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, 2 * Math.PI);
+            ctx.fillStyle = color;
+            ctx.fill();
+
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.font = '12px sans-serif';
+            ctx.fillText(name, x, y);
+        }
+
+        /**
          * Sanitizes email for use as a folder name.
          * @param {string} email - The email address to sanitize.
          * @returns {string} The sanitized string.
@@ -593,11 +615,9 @@
                 name,
                 x: Math.random() * drawingCanvas.width,
                 y: Math.random() * drawingCanvas.height,
-                image: new Image()
+                radius: 25, // Add a radius for drawing
+                color: `hsl(${Math.random() * 360}, 100%, 75%)` // Give each planet a random color
             }));
-            selectedPlanets.forEach(planet => {
-                planet.image.src = `https://via.placeholder.com/50?text=${planet.name}`;
-            });
         }
 
         /**
@@ -1055,7 +1075,6 @@
                             const lineLength = 150;
                             const planetX = fingertip[0] + vecX * lineLength;
                             const planetY = fingertip[1] + vecY * lineLength;
-                            const planetSize = 50;
 
                             drawingCtx.beginPath();
                             drawingCtx.moveTo(fingertip[0], fingertip[1]);
@@ -1064,7 +1083,7 @@
                             drawingCtx.lineWidth = 2;
                             drawingCtx.stroke();
 
-                            drawingCtx.drawImage(selectedPlanets[i].image, planetX - planetSize / 2, planetY - planetSize / 2, planetSize, planetSize);
+                            drawPlanet(drawingCtx, planetX, planetY, selectedPlanets[i].radius, selectedPlanets[i].color, selectedPlanets[i].name);
                         }
                     });
                 }
