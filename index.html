@@ -610,13 +610,23 @@
         }
 
         function selectRandomPlanets() {
+            const planetColors = {
+                'Mercury': '#A9A9A9',
+                'Venus': '#F8C471',
+                'Earth': '#2E86C1',
+                'Mars': '#E74C3C',
+                'Jupiter': '#FAD7A0',
+                'Saturn': '#F1E5AC',
+                'Uranus': '#AED6F1',
+                'Neptune': '#5DADE2'
+            };
             const shuffled = planets.sort(() => 0.5 - Math.random());
             selectedPlanets = shuffled.slice(0, 5).map(name => ({
                 name,
                 x: Math.random() * drawingCanvas.width,
                 y: Math.random() * drawingCanvas.height,
                 radius: 25, // Add a radius for drawing
-                color: `hsl(${Math.random() * 360}, 100%, 75%)` // Give each planet a random color
+                color: planetColors[name] || `hsl(${Math.random() * 360}, 100%, 75%)`
             }));
         }
 
@@ -1072,7 +1082,7 @@
                                 vecY /= length;
                             }
 
-                            const lineLength = 150;
+                            const lineLength = 50;
                             const planetX = fingertip[0] + vecX * lineLength;
                             const planetY = fingertip[1] + vecY * lineLength;
 
