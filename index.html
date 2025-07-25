@@ -1035,16 +1035,36 @@
                 isFocused = sharpnessScore >= SHARPNESS_THRESHOLD;
                 console.log(`Sharpness Score: ${sharpnessScore.toFixed(2)}, Focused: ${isFocused}`); // Log sharpness score
 
-                if (selectedPlanets.length > 0) {
-                    selectedPlanets.forEach((planet, i) => {
-                        drawingCtx.drawImage(planet.image, planet.x, planet.y, 50, 50);
-                        if (fingertips[i]) {
+                if (selectedPlanets.length > 0 && landmarks.length > 20) {
+                    const palmBase = landmarks[0];
+                    const wrist = landmarks[0];
+
+                    fingertips.forEach((fingertip, i) => {
+                        if (selectedPlanets[i] && fingertip) {
+                            const fingerMCP = landmarks[i * 4 + 1];
+
+                            let vecX = fingertip[0] - fingerMCP[0];
+                            let vecY = fingertip[1] - fingerMCP[1];
+
+                            const length = Math.sqrt(vecX * vecX + vecY * vecY);
+                            if (length > 0) {
+                                vecX /= length;
+                                vecY /= length;
+                            }
+
+                            const lineLength = 150;
+                            const planetX = fingertip[0] + vecX * lineLength;
+                            const planetY = fingertip[1] + vecY * lineLength;
+                            const planetSize = 50;
+
                             drawingCtx.beginPath();
-                            drawingCtx.moveTo(fingertips[i][0], fingertips[i][1]);
-                            drawingCtx.lineTo(planet.x + 25, planet.y + 25);
+                            drawingCtx.moveTo(fingertip[0], fingertip[1]);
+                            drawingCtx.lineTo(planetX, planetY);
                             drawingCtx.strokeStyle = 'white';
                             drawingCtx.lineWidth = 2;
                             drawingCtx.stroke();
+
+                            drawingCtx.drawImage(selectedPlanets[i].image, planetX - planetSize / 2, planetY - planetSize / 2, planetSize, planetSize);
                         }
                     });
                 }
